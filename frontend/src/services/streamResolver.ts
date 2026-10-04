@@ -53,6 +53,7 @@ export const StreamResolver = {
     const devHost = getDevHost();
     const candidateHosts = [
       devHost ? `http://${devHost}:3000` : null,
+      "http://10.56.131.173:3000",
       "http://172.16.128.173:3000",
       "http://127.0.0.1:3000",
       "http://localhost:3000",
@@ -60,7 +61,7 @@ export const StreamResolver = {
 
     for (const host of candidateHosts) {
       try {
-        const probe = await fetchWithTimeout(`${host}/`, 1000);
+        const probe = await fetchWithTimeout(`${host}/`, 5000);
         if (probe.ok) {
           console.log(`[StreamResolver] Connected to proxy server at: ${host}`);
           return `${host}/stream?id=${videoId}`;
