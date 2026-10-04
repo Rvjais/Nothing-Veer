@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { NothingLayout } from "../../constants/theme";
+import { NothingText } from "../common/NothingText";
 import { useThemeStore } from "../../store/useThemeStore";
 
 export type TabName = "home" | "search" | "library" | "settings";
@@ -157,6 +158,20 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({
                     size={19}
                     color={isActive ? (isDark ? "#FFFFFF" : "#000000") : colors.grey}
                   />
+                  {isActive && (
+                    <NothingText
+                      variant="dot"
+                      size={10.5}
+                      color={isDark ? "white" : "white"}
+                      style={[
+                        styles.label,
+                        { color: isDark ? "#FFFFFF" : "#111111" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {t.label}
+                    </NothingText>
+                  )}
                 </View>
 
                 {/* Nothing OS Iconic Red Indicator */}

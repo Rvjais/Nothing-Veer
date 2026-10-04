@@ -10,21 +10,18 @@ import {
   Animated,
   PanResponder,
   Easing,
-  TouchableWithoutFeedback,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { useThemeStore } from "../store/useThemeStore";
 import { NothingColors, NothingFonts, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { VinylDisc } from "../components/player/VinylDisc";
 import { PlayerControls } from "../components/player/PlayerControls";
 import { LyricsOverlay } from "../components/player/LyricsOverlay";
 import { QueueModal } from "../components/player/QueueModal";
-import { AlbumSheet } from "../components/player/AlbumSheet";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -39,10 +36,8 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
 }) => {
   const [showLyrics, setShowLyrics] = useState(false);
   const [queueModalVisible, setQueueModalVisible] = useState(false);
-  const [infoModalVisible, setInfoModalVisible] = useState(false);
-  const [albumSheetVisible, setAlbumSheetVisible] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState("1x");
 
-  const { colors, isDark } = useThemeStore();
   const translateY = useRef(new Animated.Value(0)).current;
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
@@ -128,6 +123,15 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
 
   if (!currentTrack) return null;
 
+  const handleToggleSpeed = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    const speeds = ["1x", "1.25x", "1.5x", "0.75x"];
+    const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+    setPlaybackSpeed(speeds[nextIdx]);
+  };
+
   const handleShare = async () => {
     try {
       await Share.share({
@@ -163,7 +167,6 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
         style={[
           styles.container,
           {
-            backgroundColor: colors.background,
             transform: [{ translateY }],
           },
         ]}
@@ -171,7 +174,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
         <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
           {/* Pull-Down Drag Pill Handle */}
           <View {...pullPanResponder.panHandlers} style={styles.dragHandleWrapper}>
-            <View style={[styles.dragHandleBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)' }]} />
+            <View style={styles.dragHandleBar} />
           </View>
 
           {/* Top Bar matching Nothing OS + Pull down support */}
@@ -184,7 +187,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name="chevron-down"
                 size={24}
-                color={colors.white}
+                color={NothingColors.white}
               />
             </TouchableOpacity>
 
@@ -205,15 +208,15 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name="ellipsis-vertical"
                 size={20}
-                color={colors.white}
+                color={NothingColors.white}
               />
             </TouchableOpacity>
           </View>
 
           {/* Main Visual: Turntable Disc OR Synced Lyrics */}
-          <View style={styles.visualContainer}>
+          <View {...pullPanResponder.panHandlers} style={styles.visualContainer}>
             {showLyrics ? (
-              <View {...pullPanResponder.panHandlers} style={styles.lyricsWrapper}>
+              <View style={styles.lyricsWrapper}>
                 <LyricsOverlay
                   title={currentTrack.title}
                   artist={currentTrack.artist}
@@ -231,43 +234,37 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
                 isPlaying={isPlaying}
                 positionMillis={positionMillis}
                 durationMillis={durationMillis}
+                speed={playbackSpeed}
+                onToggleSpeed={handleToggleSpeed}
                 onPress={() => setShowLyrics(true)}
                 onSeek={seekTo}
               />
             )}
           </View>
 
-          {/* Track Info Row: Queue/Album Icon, Title Capsule, Star Icon */}
+          {/* Track Info Row: Queue Icon, Title Capsule, Star Icon */}
           <View style={styles.trackInfoRow}>
-            {/* Show Album button if track has albumId, else Queue button */}
-            {currentTrack.albumId ? (
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                  setAlbumSheetVisible(true);
-                }}
-                style={styles.actionCircleBtn}
-              >
-                <Ionicons name="disc-outline" size={18} color={colors.whiteDim} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                  setQueueModalVisible(true);
-                }}
-                style={styles.actionCircleBtn}
-              >
-                <Ionicons name="albums-outline" size={18} color={colors.whiteDim} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                } catch {}
+                setQueueModalVisible(true);
+              }}
+              style={styles.actionCircleBtn}
+            >
+              <Ionicons
+                name="albums-outline"
+                size={18}
+                color={NothingColors.whiteDim}
+              />
+            </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => setInfoModalVisible(true)}
-              style={[styles.titleCapsule, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }]}
+              onPress={() => setShowLyrics(!showLyrics)}
+              style={styles.titleCapsule}
             >
               <NothingText
                 variant="dot"
@@ -293,7 +290,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name={isFavorite ? "star" : "star-outline"}
                 size={20}
-                color={isFavorite ? colors.red : colors.whiteDim}
+                color={isFavorite ? NothingColors.red : NothingColors.whiteDim}
               />
             </TouchableOpacity>
           </View>
@@ -317,8 +314,6 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
             positionMillis={positionMillis}
             durationMillis={durationMillis}
             onSeek={seekTo}
-            showLyrics={showLyrics}
-            onToggleLyrics={() => setShowLyrics(!showLyrics)}
           />
         </SafeAreaView>
 
@@ -327,54 +322,6 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
           visible={queueModalVisible}
           onClose={() => setQueueModalVisible(false)}
         />
-
-        {/* Album Track List Sheet */}
-        {currentTrack.albumId && (
-          <AlbumSheet
-            visible={albumSheetVisible}
-            browseId={currentTrack.albumId}
-            albumName={currentTrack.album || "Album"}
-            albumArtist={currentTrack.artist}
-            albumArtwork={currentTrack.artwork}
-            onClose={() => setAlbumSheetVisible(false)}
-          />
-        )}
-
-        {/* Info Modal */}
-        <Modal
-          visible={infoModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setInfoModalVisible(false)}
-        >
-          <TouchableOpacity activeOpacity={1} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setInfoModalVisible(false)}>
-            <TouchableWithoutFeedback>
-              <View style={{ width: '85%', backgroundColor: colors.surfaceLow, borderRadius: 16, padding: 24, borderWidth: 1, borderColor: colors.borderSubtle }}>
-                <NothingText variant="h3" color="white" style={{ marginBottom: 16, textAlign: 'center' }}>
-                  {currentTrack.title}
-                </NothingText>
-                <NothingText variant="bodyMedium" color="dim" style={{ marginBottom: 8, textAlign: 'center' }}>
-                  {currentTrack.artist}
-                </NothingText>
-                {currentTrack.album && (
-                  <NothingText variant="body" color="grey" style={{ textAlign: 'center' }}>
-                    {currentTrack.album}
-                  </NothingText>
-                )}
-                
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => setInfoModalVisible(false)}
-                  style={{ marginTop: 24, paddingVertical: 12, backgroundColor: colors.red, borderRadius: 24, alignItems: 'center' }}
-                >
-                  <NothingText variant="dot" size={12} color="white">
-                    CLOSE
-                  </NothingText>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </TouchableOpacity>
-        </Modal>
       </Animated.View>
     </Modal>
   );

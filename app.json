@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Nothing Veer",
+    "name": "Nothing Music",
     "slug": "nothing-music",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -36,12 +36,7 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "abf0b411-0ce8-449b-8da5-65aa0dca8dd1"
-      }
-    },
-    "owner": "ranveerexpo"
+    }
   }
 }
+

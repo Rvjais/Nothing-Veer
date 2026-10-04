@@ -120,17 +120,9 @@ export const YouTubeService = {
   async search(query: string, filter?: "songs" | "albums" | "artists" | "playlists"): Promise<Track[]> {
     if (!query.trim()) return [];
 
-    // YouTube Music innertube filter params (base64-encoded protobuf)
-    const FILTER_PARAMS: Record<string, string> = {
-      songs:     "Eg-KAQwIARAAGAAgACgAMABqChAEEAMQCRAFEAo%3D",
-      albums:    "Eg-KAQwIABAAGAAgASgAMABqChAEEAMQCRAFEAo%3D",
-      artists:   "Eg-KAQwIABAAGAEgACgAMABqChAEEAMQCRAFEAo%3D",
-      playlists: "Eg-KAQwIABAAGAAoAagAMABqChAEEAMQCRAFEAo%3D",
-    };
-
-    const params = filter ? FILTER_PARAMS[filter] : undefined;
-
     try {
+      const params = filter === "songs" ? "Eg-KAQwIARAAGAAgACgAMABqChAEEAMQCRAFEAo%3D" : undefined;
+
       const res = await fetch(`${INNERTUBE_API}/search`, {
         method: "POST",
         headers: DEFAULT_HEADERS,
@@ -160,66 +152,21 @@ export const YouTubeService = {
 
         if (shelf?.contents) {
           for (const item of shelf.contents) {
-            // For artists/albums, try to extract a "representative" track
-            const renderer =
-              item.musicResponsiveListItemRenderer ||
-              item.musicTwoRowItemRenderer ||
-              item;
-
-            // Try artist/album browse navigation for non-song results
-            if (filter === "artists" || filter === "albums") {
-              const browseId =
-                renderer.navigationEndpoint?.browseEndpoint?.browseId ||
-                renderer.overlay?.musicItemThumbnailOverlayRenderer?.content
-                  ?.musicPlayButtonRenderer?.playNavigationEndpoint?.browseEndpoint?.browseId;
-
-              const titleRuns =
-                renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs ||
-                renderer.title?.runs || [];
-              const title = titleRuns.map((r: any) => r.text).join("") || "Unknown";
-
-              const subtitleRuns =
-                renderer.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs ||
-                renderer.subtitle?.runs || [];
-              const subtitle = subtitleRuns.map((r: any) => r.text).join("") || "";
-
-              const thumbnails =
-                renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
-              const artwork = formatArtwork(thumbnails[thumbnails.length - 1]?.url);
-
-              // For artists, use browseId as id so user can see but it's distinguishable
-              const id =
-                renderer.overlay?.musicItemThumbnailOverlayRenderer?.content
-                  ?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.videoId ||
-                browseId || "";
-
-              if (id && !tracks.some((t) => t.id === id)) {
-                tracks.push({
-                  id,
-                  title,
-                  artist: subtitle || (filter === "artists" ? "Artist" : "Album"),
-                  album: filter === "albums" ? title : undefined,
-                  artwork,
-                  duration: 180,
-                });
-              }
-            } else {
-              const track = parseTrackItem(item);
-              if (track && !tracks.some((t) => t.id === track.id)) {
-                tracks.push(track);
-              }
+            const track = parseTrackItem(item);
+            if (track && !tracks.some((t) => t.id === track.id)) {
+              tracks.push(track);
             }
           }
         }
       }
 
       if (tracks.length === 0) {
-        return filter === "songs" || !filter ? await this.searchFallback(query) : [];
+        return await this.searchFallback(query);
       }
 
       return tracks;
     } catch (error) {
-      return filter === "songs" || !filter ? await this.searchFallback(query) : [];
+      return await this.searchFallback(query);
     }
   },
 
@@ -367,71 +314,5 @@ export const YouTubeService = {
 
   async getMoodTracks(mood: string): Promise<Track[]> {
     return this.search(`${mood} music hits`, "songs");
-  },
-
-  async getAlbumTracks(browseId: string): Promise<{ title: string; artist: string; artwork: string; tracks: Track[] }> {
-    try {
-      const res = await fetch(`${INNERTUBE_API}/browse`, {
-        method: "POST",
-        headers: DEFAULT_HEADERS,
-        body: JSON.stringify({
-          context: { client: INNERTUBE_CLIENT },
-          browseId,
-        }),
-      });
-
-      if (!res.ok) throw new Error("Browse album failed");
-      const data = await res.json();
-
-      // Album header info
-      const header =
-        data.header?.musicDetailHeaderRenderer ||
-        data.header?.musicImmersiveHeaderRenderer ||
-        data.header?.musicVisualHeaderRenderer;
-
-      const albumTitle: string =
-        header?.title?.runs?.[0]?.text ||
-        data.header?.musicImmersiveHeaderRenderer?.title?.runs?.[0]?.text ||
-        "Album";
-      const albumArtist: string =
-        header?.subtitle?.runs?.[2]?.text ||
-        header?.subtitle?.runs?.[0]?.text ||
-        "Unknown Artist";
-      const albumArtworkArr =
-        header?.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails ||
-        header?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
-        header?.foregroundThumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
-        [];
-      const albumArtwork: string = albumArtworkArr.length > 0
-        ? formatArtwork(albumArtworkArr[albumArtworkArr.length - 1]?.url)
-        : "";
-
-      // Track list
-      const tracks: Track[] = [];
-      const contents =
-        data.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer
-          ?.content?.sectionListRenderer?.contents || [];
-
-      for (const section of contents) {
-        const shelf = section.musicShelfRenderer;
-        if (!shelf?.contents) continue;
-        for (const item of shelf.contents) {
-          const track = parseTrackItem(item);
-          if (track && !tracks.some((t) => t.id === track.id)) {
-            tracks.push({
-              ...track,
-              artist: track.artist !== "Unknown Artist" ? track.artist : albumArtist,
-              album: albumTitle,
-              artwork: track.artwork || albumArtwork,
-              albumId: browseId,
-            });
-          }
-        }
-      }
-
-      return { title: albumTitle, artist: albumArtist, artwork: albumArtwork, tracks };
-    } catch (e) {
-      return { title: "Album", artist: "", artwork: "", tracks: [] };
-    }
   },
 };

@@ -14,7 +14,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { NothingColors, NothingFonts } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
-import { useThemeStore } from "../../store/useThemeStore";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DISC_SIZE = Math.min(SCREEN_WIDTH * 0.74, 280);
@@ -29,6 +28,8 @@ export interface VinylDiscProps {
   positionMillis: number;
   durationMillis: number;
   onPress?: () => void;
+  speed?: string;
+  onToggleSpeed?: () => void;
   onSeek?: (seconds: number) => void;
 }
 
@@ -40,6 +41,8 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
   positionMillis,
   durationMillis,
   onPress,
+  speed = "1x",
+  onToggleSpeed,
   onSeek,
 }) => {
   const rotationAnim = useRef(new Animated.Value(0)).current;
@@ -74,7 +77,6 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
   }, [isPlaying]);
 
   // Rotational DJ turntable scratch/scrub gesture
-  const scrubTargetSecs = useRef<number | null>(null);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -104,11 +106,9 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
 
           // 1 full turn (2 * PI) = 30 seconds of seeking
           const secondsDelta = (delta / (2 * Math.PI)) * 30;
-          
-          const currentSecs = scrubTargetSecs.current !== null ? scrubTargetSecs.current : (positionMillis / 1000);
+          const currentSecs = positionMillis / 1000;
           const totalSecs = durationMillis / 1000;
           const newSecs = Math.max(0, Math.min(totalSecs, currentSecs + secondsDelta));
-          scrubTargetSecs.current = newSecs;
 
           // Throttle haptics
           const now = Date.now();
@@ -118,19 +118,25 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             } catch {}
           }
+
+          // Accumulate internally, call onSeek only on release
+          scrubAngleRef.current = scrubAngleRef.current; // Keep it
+          lastAngleRef.current = currentAngle;
+          // Save it to a ref so we can call onSeek in release
+          if (!panResponder.current.lastSeek) panResponder.current.lastSeek = newSecs;
+          panResponder.current.lastSeek = newSecs;
         }
         lastAngleRef.current = currentAngle;
       },
       onPanResponderRelease: () => {
         lastAngleRef.current = null;
-        if (scrubTargetSecs.current !== null) {
-          onSeek!(scrubTargetSecs.current);
-          scrubTargetSecs.current = null;
+        if (panResponder.current.lastSeek !== undefined) {
+          onSeek(panResponder.current.lastSeek);
+          panResponder.current.lastSeek = undefined;
         }
       },
       onPanResponderTerminate: () => {
         lastAngleRef.current = null;
-        scrubTargetSecs.current = null;
       },
     })
   ).current;
@@ -156,10 +162,37 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
   const progress = durationMillis > 0 ? Math.min(1, Math.max(0, positionMillis / durationMillis)) : 0;
   const arcLength = 2 * Math.PI * ARC_RADIUS;
 
-  const { colors, isDark } = useThemeStore();
-
   return (
     <View style={styles.container}>
+      {/* Top Details matching screenshot: Elapsed/Total • Speed */}
+      <View style={styles.infoRow}>
+        <View style={styles.timeTagRow}>
+          <NothingText variant="dot" size={11} color="dim">
+            {formatTime(positionMillis)}/{formatTime(durationMillis)}
+          </NothingText>
+          <NothingText variant="dot" size={11} color="dim" style={{ marginHorizontal: 4 }}>
+            •
+          </NothingText>
+          <TouchableOpacity activeOpacity={0.7} onPress={onToggleSpeed}>
+            <NothingText variant="dot" size={11} color="red">
+              {speed}
+            </NothingText>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={onToggleSpeed}
+          style={styles.speakerIconBtn}
+        >
+          <Ionicons
+            name="volume-high"
+            size={14}
+            color={NothingColors.whiteDim}
+          />
+        </TouchableOpacity>
+      </View>
+
       {/* Main Disc Area with Outer Progress Arc */}
       <View style={styles.discOuterWrapper}>
         {/* SVG Outer Progress Arc */}
@@ -174,7 +207,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
             cy={(DISC_SIZE + 44) / 2}
             r={ARC_RADIUS}
             fill="none"
-            stroke={colors.surfaceLow}
+            stroke="#1A1A1A"
             strokeWidth={3}
           />
           {/* Progress Arc */}
@@ -183,7 +216,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
             cy={(DISC_SIZE + 44) / 2}
             r={ARC_RADIUS}
             fill="none"
-            stroke={isDark ? "#E0E0E0" : "#222222"}
+            stroke="#E0E0E0"
             strokeWidth={4.5}
             strokeDasharray={`${arcLength * 0.28} ${arcLength}`}
             strokeDashoffset={-arcLength * 0.12 - (arcLength * 0.28 * (1 - progress))}
@@ -202,8 +235,6 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   height: DISC_SIZE,
                   borderRadius: RADIUS,
                   transform: [{ rotate: spin }, { rotate: scrubSpin }],
-                  backgroundColor: isDark ? "#161616" : "#EAEAEA",
-                  borderColor: isDark ? "#242424" : colors.borderSubtle,
                 },
               ]}
             >
@@ -220,7 +251,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   y1={RADIUS * 0.2}
                   x2={RADIUS * 1.8}
                   y2={RADIUS * 1.8}
-                  stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}
+                  stroke="rgba(255,255,255,0.06)"
                   strokeWidth={1}
                 />
                 <Line
@@ -228,7 +259,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   y1={RADIUS * 0.2}
                   x2={RADIUS * 0.2}
                   y2={RADIUS * 1.8}
-                  stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}
+                  stroke="rgba(255,255,255,0.06)"
                   strokeWidth={1}
                 />
 
@@ -238,7 +269,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   cy={RADIUS}
                   r={RADIUS * 0.9}
                   fill="none"
-                  stroke={isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)"}
+                  stroke="rgba(255, 255, 255, 0.04)"
                   strokeWidth={1}
                 />
                 <Circle
@@ -246,7 +277,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   cy={RADIUS}
                   r={RADIUS * 0.78}
                   fill="none"
-                  stroke={isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)"}
+                  stroke="rgba(255, 255, 255, 0.04)"
                   strokeWidth={1}
                 />
                 <Circle
@@ -254,7 +285,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                   cy={RADIUS}
                   r={RADIUS * 0.65}
                   fill="none"
-                  stroke={isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)"}
+                  stroke="rgba(255, 255, 255, 0.04)"
                   strokeWidth={1}
                 />
               </Svg>
@@ -264,8 +295,9 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                 <NothingText
                   variant="dot"
                   size={9.5}
+                  color="dim"
                   numberOfLines={1}
-                  style={[styles.discText, { color: isDark ? "#A0A0A0" : "#555555" }]}
+                  style={styles.discText}
                 >
                   {artist.toUpperCase()}
                 </NothingText>
@@ -276,22 +308,23 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
                 <NothingText
                   variant="dot"
                   size={9.5}
+                  color="dim"
                   numberOfLines={1}
-                  style={[styles.discText, { color: isDark ? "#A0A0A0" : "#555555" }]}
+                  style={styles.discText}
                 >
                   {(album || "NOTHING OS").toUpperCase()}
                 </NothingText>
               </View>
 
               {/* Center Vinyl Label with Song Thumbnail Artwork! */}
-              <View style={[styles.centerArtHub, { backgroundColor: isDark ? "#0A0A0A" : "#FFFFFF", borderColor: isDark ? "rgba(255, 255, 255, 0.18)" : "rgba(0, 0, 0, 0.15)" }]}>
+              <View style={styles.centerArtHub}>
                 <Image
                   source={{ uri: artwork }}
                   style={styles.thumbnailArtwork}
                 />
                 {/* Vinyl Record Center Label Overlay with Spindle */}
-                <View style={[styles.spindleCenter, { backgroundColor: isDark ? "#000000" : "#E0E0E0", borderColor: isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)" }]}>
-                  <View style={[styles.spindleInnerDot, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.1)" }]} />
+                <View style={styles.spindleCenter}>
+                  <View style={styles.spindleInnerDot} />
                 </View>
               </View>
             </Animated.View>
@@ -300,7 +333,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
 
         {/* Nothing Red Indicator Dot on Bottom Left */}
         <View style={styles.redDotWrapper}>
-          <View style={[styles.redDot, { backgroundColor: colors.red }]} />
+          <View style={styles.redDot} />
         </View>
       </View>
     </View>

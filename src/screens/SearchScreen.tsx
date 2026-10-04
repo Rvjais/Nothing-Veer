@@ -19,7 +19,6 @@ import { NothingColors, NothingFonts, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingSearchBar } from "../components/common/NothingSearchBar";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
-import { AlbumSheet } from "../components/player/AlbumSheet";
 
 const TRENDING_KEYWORDS = [
   "Starboy",
@@ -58,15 +57,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
   const activeDownloads = useLibraryStore((s) => s.activeDownloads);
   const { colors, isDark } = useThemeStore();
 
-  const [searchFilter, setSearchFilter] = useState<"songs" | "albums" | "artists" | "playlists">("songs");
-  const [albumSheet, setAlbumSheet] = useState<{
-    visible: boolean;
-    browseId: string;
-    albumName: string;
-    albumArtist: string;
-    albumArtwork: string;
-  }>({ visible: false, browseId: "", albumName: "", albumArtist: "", albumArtwork: "" });
-
   useEffect(() => {
     if (!query.trim() || searched) {
       setSuggestions([]);
@@ -81,7 +71,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     return () => clearTimeout(timer);
   }, [query, searched]);
 
-  const performSearch = async (searchTerm: string, filterStr = searchFilter) => {
+  const performSearch = async (searchTerm: string) => {
     if (!searchTerm.trim()) return;
     setQuery(searchTerm);
     setSuggestions([]);
@@ -89,7 +79,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     setLoading(true);
 
     try {
-      const tracks = await YouTubeService.search(searchTerm, filterStr);
+      const tracks = await YouTubeService.search(searchTerm, "songs");
       setResults(tracks);
     } catch (e) {
     } finally {
@@ -97,37 +87,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     }
   };
 
-  const handleFilterSelect = (newFilter: typeof searchFilter) => {
-    try { Haptics.selectionAsync(); } catch {}
-    setSearchFilter(newFilter);
-    if (query.trim()) {
-      performSearch(query, newFilter);
-    }
-  };
-
   const handleTrackPress = (track: Track) => {
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-
-    // For albums — the "id" is actually the browseId; open AlbumSheet
-    if (searchFilter === "albums") {
-      setAlbumSheet({
-        visible: true,
-        browseId: track.id,
-        albumName: track.title,
-        albumArtist: track.artist,
-        albumArtwork: track.artwork,
-      });
-      return;
-    }
-
-    // For artists — could open an artist page in future; for now play by name search
-    if (searchFilter === "artists") {
-      // treat the press as searching by artist name
-      setSearchFilter("songs");
-      performSearch(track.title, "songs");
-      return;
-    }
-
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
     playTrack(track, results);
     onTrackSelect?.(track);
   };
@@ -145,66 +108,17 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     const downloaded = isDownloaded(item.id);
     const downloading = activeDownloads[item.id] !== undefined;
 
-    // Artist cards — large square artwork + artist name only
-    if (searchFilter === "artists") {
-      return (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => handleTrackPress(item)}
-          style={[styles.trackRow, { backgroundColor: colors.surfaceLow, borderBottomColor: colors.borderSubtle }]}
-        >
-          <Image
-            source={{ uri: item.artwork }}
-            style={[styles.trackThumb, { borderRadius: 40, backgroundColor: colors.surfaceHigh }]}
-          />
-          <View style={styles.trackDetails}>
-            <NothingText numberOfLines={1} size={14} variant="bodyMedium" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-              {item.title}
-            </NothingText>
-            <NothingText numberOfLines={1} size={11} style={{ color: colors.grey, marginTop: 3 }}>
-              ARTIST
-            </NothingText>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.grey} style={{ marginRight: 4 }} />
-        </TouchableOpacity>
-      );
-    }
-
-    // Album cards — artwork + album + sub-label
-    if (searchFilter === "albums") {
-      return (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => handleTrackPress(item)}
-          style={[styles.trackRow, { backgroundColor: colors.surfaceLow, borderBottomColor: colors.borderSubtle }]}
-        >
-          <Image source={{ uri: item.artwork }} style={[styles.trackThumb, { borderRadius: 6, backgroundColor: colors.surfaceHigh }]} />
-          <View style={styles.trackDetails}>
-            <NothingText numberOfLines={1} size={14} variant="bodyMedium" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-              {item.title}
-            </NothingText>
-            <NothingText numberOfLines={1} size={12} style={{ color: colors.grey, marginTop: 2 }}>
-              {item.artist}
-            </NothingText>
-          </View>
-          <NothingText variant="dot" size={10} style={{ color: colors.red, marginRight: 8 }}>
-            ALBUM
-          </NothingText>
-        </TouchableOpacity>
-      );
-    }
-
     return (
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => handleTrackPress(item)}
         style={[
           styles.trackRow,
-          { backgroundColor: colors.surfaceLow, borderBottomColor: colors.borderSubtle },
+          { borderBottomColor: colors.borderSubtle },
           isCurrent && { backgroundColor: isDark ? "rgba(215, 25, 33, 0.12)" : "rgba(215, 25, 33, 0.08)" },
         ]}
       >
-        <Image source={{ uri: item.artwork }} style={[styles.trackThumb, { backgroundColor: colors.surfaceHigh }]} />
+        <Image source={{ uri: item.artwork }} style={styles.trackThumb} />
 
         <View style={styles.trackDetails}>
           <NothingText
@@ -273,7 +187,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
             onPress={onBack}
             style={styles.backBtn}
           >
-            <Ionicons name="arrow-back" size={24} color={colors.white} />
+            <Ionicons name="arrow-back" size={24} color={NothingColors.white} />
           </TouchableOpacity>
         )}
         <View style={{ flex: 1 }}>
@@ -293,29 +207,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         </View>
       </View>
 
-      <View style={{ marginBottom: 12 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
-          {(["songs", "albums", "artists", "playlists"] as const).map((f) => (
-            <TouchableOpacity
-              key={f}
-              activeOpacity={0.7}
-              onPress={() => handleFilterSelect(f)}
-              style={[
-                styles.keywordTag,
-                { paddingVertical: 7, paddingHorizontal: 14 },
-                { backgroundColor: searchFilter === f ? colors.surfaceMid : colors.surfaceLow, borderColor: searchFilter === f ? colors.red : colors.borderSubtle }
-              ]}
-            >
-              <NothingText variant="dot" size={10} style={{ color: searchFilter === f ? colors.red : colors.grey }}>
-                {f.toUpperCase()}
-              </NothingText>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
       {suggestions.length > 0 && !searched && (
-        <View style={[styles.suggestionsContainer, { backgroundColor: colors.surfaceLowest, borderBottomColor: colors.borderSubtle }]}>
+        <View style={styles.suggestionsContainer}>
           {suggestions.map((sug, idx) => (
             <TouchableOpacity
               key={idx}
@@ -326,7 +219,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
               <Ionicons
                 name="search-outline"
                 size={16}
-                color={colors.grey}
+                color={NothingColors.grey}
                 style={{ marginRight: 12 }}
               />
               <NothingText size={14} color="dim">
@@ -339,7 +232,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color={colors.red} />
+          <ActivityIndicator size="small" color={NothingColors.red} />
           <NothingText
             variant="dot"
             size={12}
@@ -369,7 +262,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           />
         )
       ) : (
-          <ScrollView
+        <ScrollView
           style={styles.trendingContainer}
           contentContainerStyle={{ paddingBottom: 100 }}
         >
@@ -383,10 +276,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
                 key={index}
                 activeOpacity={0.75}
                 onPress={() => performSearch(keyword)}
-                style={[
-                  styles.keywordTag,
-                  { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }
-                ]}
+                style={styles.keywordTag}
               >
                 <NothingText variant="bodyMedium" size={13} color="dim">
                   {keyword}
@@ -396,15 +286,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           </View>
         </ScrollView>
       )}
-
-      <AlbumSheet
-        visible={albumSheet.visible}
-        browseId={albumSheet.browseId}
-        albumName={albumSheet.albumName}
-        albumArtist={albumSheet.albumArtist}
-        albumArtwork={albumSheet.albumArtwork}
-        onClose={() => setAlbumSheet((s) => ({ ...s, visible: false }))}
-      />
     </View>
   );
 };

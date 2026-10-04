@@ -155,14 +155,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 onPress={() => handleMoodSelect(mood)}
                 style={[
                   styles.moodPill,
-                  { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
-                  isSelected && [styles.moodPillActive, { backgroundColor: isDark ? NothingColors.white : '#000000', borderColor: colors.borderActive }]
+                  isSelected && styles.moodPillActive,
                 ]}
               >
                 <NothingText
                   variant="dot"
                   size={12}
-                  style={{ color: isSelected ? (isDark ? '#000000' : '#FFFFFF') : colors.grey }}
+                  color={isSelected ? "white" : "grey"}
                 >
                   {mood}
                 </NothingText>

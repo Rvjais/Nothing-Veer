@@ -1,10 +1,9 @@
 import React from "react";
 import { Text, TextProps, TextStyle } from "react-native";
-import { NothingFonts } from "../../constants/theme";
-import { useThemeStore } from "../../store/useThemeStore";
+import { NothingColors, NothingFonts } from "../../constants/theme";
 
 export interface NothingTextProps extends TextProps {
-  variant?: "dot" | "headline" | "subhead" | "body" | "bodyMedium" | "mono" | "regular";
+  variant?: "dot" | "headline" | "subhead" | "body" | "bodyMedium" | "mono";
   color?: "white" | "dim" | "grey" | "red" | "muted";
   size?: number;
   weight?: TextStyle["fontWeight"];
@@ -20,7 +19,6 @@ export const NothingText: React.FC<NothingTextProps> = ({
   uppercase,
   ...props
 }) => {
-  const { colors } = useThemeStore();
   let fontFamily = NothingFonts.body;
   let defaultSize = 14;
   let letterSpacing = 0;
@@ -37,7 +35,6 @@ export const NothingText: React.FC<NothingTextProps> = ({
       letterSpacing = 0.5;
       break;
     case "subhead":
-    case "regular":
       fontFamily = NothingFonts.regular;
       defaultSize = 16;
       letterSpacing = 0.2;
@@ -58,23 +55,23 @@ export const NothingText: React.FC<NothingTextProps> = ({
       break;
   }
 
-  let textColor = colors.white;
+  let textColor = NothingColors.white;
   switch (color) {
     case "dim":
-      textColor = colors.whiteDim;
+      textColor = NothingColors.whiteDim;
       break;
     case "grey":
-      textColor = colors.grey;
+      textColor = NothingColors.grey;
       break;
     case "red":
-      textColor = colors.red;
+      textColor = NothingColors.red;
       break;
     case "muted":
-      textColor = colors.greyDark;
+      textColor = NothingColors.greyDark;
       break;
     case "white":
     default:
-      textColor = colors.white;
+      textColor = NothingColors.white;
       break;
   }
 
@@ -102,3 +99,4 @@ export const NothingText: React.FC<NothingTextProps> = ({
     </Text>
   );
 };
+
