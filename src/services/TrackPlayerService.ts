@@ -44,4 +44,12 @@ export async function registerTrackPlayerService() {
   TrackPlayer.addEventListener(Event.RemoteNext, () => TrackPlayer.skipToNext());
   TrackPlayer.addEventListener(Event.RemotePrevious, () => TrackPlayer.skipToPrevious());
   TrackPlayer.addEventListener(Event.RemoteSeek, (event) => TrackPlayer.seekTo(event.position));
+  
+  TrackPlayer.addEventListener(Event.PlaybackError, (event) => {
+    console.error('[TrackPlayer Error]', event.code, event.message);
+  });
+  
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, (event) => {
+    console.log('[TrackPlayer TrackChanged]', event.index);
+  });
 }
