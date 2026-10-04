@@ -52,6 +52,7 @@ export const StreamResolver = {
     // 1. Probe local streaming proxy first for zero-403 smooth playback
     const devHost = getDevHost();
     const candidateHosts = [
+      "https://nothing-veer.onrender.com",
       devHost ? `http://${devHost}:3000` : null,
       "http://172.16.128.173:3000",
       "http://127.0.0.1:3000",
