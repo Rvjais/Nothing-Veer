@@ -101,32 +101,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
       console.log("[Player] Resolved audioUri:", audioUri.substring(0, 60));
 
-      if (audioUri.includes("googlevideo.com")) {
-        const cacheFile = `${FileSystem.cacheDirectory}stream_${track.id}.m4a`;
-        try {
-          const cacheInfo = await FileSystem.getInfoAsync(cacheFile);
-          if (cacheInfo.exists && (cacheInfo as any).size > 40000) {
-            audioUri = cacheFile;
-          } else {
-            const download = FileSystem.createDownloadResumable(
-              audioUri,
-              cacheFile,
-              {
-                headers: {
-                  "User-Agent":
-                    "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
-                  Referer: "https://www.youtube.com/",
-                },
-              }
-            );
-            const dlRes = await download.downloadAsync();
-            if (dlRes?.status === 200 || dlRes?.status === 206) {
-              audioUri = dlRes.uri;
-            }
-          }
-        } catch {}
-      }
-
       const isRemoteGoogleVideo = audioUri.includes("googlevideo.com");
       
       await TrackPlayer.add({
