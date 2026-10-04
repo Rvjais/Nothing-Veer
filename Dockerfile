@@ -10,16 +10,13 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
 # Set up the Node app
 WORKDIR /app
 
-# We only copy package.json and server.js to keep the backend lightweight on Render
-# since this repo contains the full React Native frontend too.
-COPY package*.json ./
-
-# Install only production dependencies (skips React Native dev tools)
-RUN npm install --omit=dev
+# We skip copying the frontend package.json to avoid React Native peer dependency errors
+# Instead, we just install the two tiny packages the proxy actually needs:
+RUN npm init -y && npm install express cors
 
 COPY server.js ./
 
 EXPOSE 3000
 
-# Start the proxy server (ignoring the React Native start scripts)
+# Start the proxy server
 CMD ["node", "server.js"]
