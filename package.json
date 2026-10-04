@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "cors": "^2.8.6",
@@ -18,7 +17,6 @@
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.20",
     "express": "^5.2.1",
-    "lucide-react-native": "^0.475.0",
     "patch-package": "^8.0.1",
     "postinstall-postinstall": "^2.1.0",
     "react": "19.1.0",
@@ -28,7 +26,6 @@
     "react-native-svg": "15.12.1",
     "react-native-track-player": "^4.1.2",
     "youtubei.js": "^18.1.0",
-    "ytmusic-api": "^5.3.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
