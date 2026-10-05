@@ -7,6 +7,7 @@ import {
   Image,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { YouTubeService } from "../services/youtube";
@@ -15,7 +16,7 @@ import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useThemeStore } from "../store/useThemeStore";
 import * as Haptics from "expo-haptics";
-import { NothingColors, NothingFonts, NothingLayout } from "../constants/theme";
+import { NothingColors, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingSearchBar } from "../components/common/NothingSearchBar";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
@@ -63,12 +64,21 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
       return;
     }
 
-    const timer = setTimeout(async () => {
-      const list = await YouTubeService.getSearchSuggestions(query);
-      setSuggestions(list);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void YouTubeService.getSearchSuggestions(query)
+        .then((list) => {
+          if (!cancelled) setSuggestions(list);
+        })
+        .catch(() => {
+          if (!cancelled) setSuggestions([]);
+        });
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, searched]);
 
   const performSearch = async (searchTerm: string) => {
@@ -81,7 +91,11 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     try {
       const tracks = await YouTubeService.search(searchTerm, "songs");
       setResults(tracks);
-    } catch (e) {
+    } catch (error) {
+      Alert.alert(
+        "Search failed",
+        error instanceof Error ? error.message : "Could not search YouTube Music."
+      );
     } finally {
       setLoading(false);
     }
@@ -99,7 +113,14 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
-    await downloadTrack(track);
+    try {
+      await downloadTrack(track);
+    } catch (error) {
+      Alert.alert(
+        "Download failed",
+        error instanceof Error ? error.message : "Could not save this track."
+      );
+    }
   };
 
   const renderTrackItem = ({ item }: { item: Track }) => {

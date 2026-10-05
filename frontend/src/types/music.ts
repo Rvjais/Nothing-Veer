@@ -1,3 +1,5 @@
+export type AudioQuality = "high" | "medium" | "low";
+
 export interface Track {
   id: string; // YouTube Video ID
   title: string;
@@ -7,6 +9,7 @@ export interface Track {
   artwork: string;
   duration: number; // in seconds
   streamUrl?: string;
+  contentType?: string;
   localUri?: string;
   fileSize?: number;
   downloadedAt?: number;
@@ -51,4 +54,3 @@ export interface HomeFeedSection {
   subtitle?: string;
   items: Track[];
 }
-

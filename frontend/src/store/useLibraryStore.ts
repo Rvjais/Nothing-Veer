@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Track } from "../types/music";
+import { AudioQuality, Track } from "../types/music";
 import { DownloadManager } from "../services/downloadManager";
 
 interface PlaylistData {
@@ -16,7 +16,7 @@ interface LibraryState {
   playlists: PlaylistData[];
   downloadedTracks: Track[];
   activeDownloads: Record<string, number>; // trackId -> progress 0..1
-  audioQuality: "high" | "medium" | "low";
+  audioQuality: AudioQuality;
 
   toggleFavorite: (track: Track) => Promise<void>;
   isFavorite: (trackId: string) => boolean;
@@ -137,7 +137,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         set((state) => ({
           activeDownloads: { ...state.activeDownloads, [track.id]: progress },
         }));
-      });
+      }, get().audioQuality);
 
       const updatedDownloads = [savedTrack, ...get().downloadedTracks];
       const nextActive = { ...get().activeDownloads };
@@ -154,6 +154,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const nextActive = { ...get().activeDownloads };
       delete nextActive[track.id];
       set({ activeDownloads: nextActive });
+      throw e;
     }
   },
 
@@ -200,7 +201,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           audioQuality: parsed.audioQuality || "high",
         });
       }
-    } catch (e) {}
+    } catch {}
   },
 }));
 
@@ -214,5 +215,5 @@ async function saveState(state: Partial<LibraryState>) {
       audioQuality: state.audioQuality || "high",
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  } catch (e) {}
+  } catch {}
 }

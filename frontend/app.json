@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": false,
     "name": "Nothing Music",
     "slug": "nothing-music",
     "version": "1.0.0",
@@ -36,7 +37,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "abf0b411-0ce8-449b-8da5-65aa0dca8dd1"
+      }
     }
   }
 }
-

@@ -15,6 +15,7 @@ import { NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingCard } from "../components/common/NothingCard";
 import { DownloadManager } from "../services/downloadManager";
+import { StreamResolver } from "../services/streamResolver";
 
 export interface SettingsScreenProps {
   onBack?: () => void;
@@ -61,10 +62,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
           style: "destructive",
           onPress: async () => {
             try {
+              await DownloadManager.clearTemporaryFiles();
+              let backendCleared = false;
+              try {
+                await StreamResolver.clearCache();
+                backendCleared = true;
+              } catch {
+                // Local temporary download files are still cleared if the
+                // backend is offline.
+              }
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert("SUCCESS", "Cache cleared successfully.");
-            } catch (e) {
-              console.warn(e);
+              Alert.alert(
+                backendCleared ? "SUCCESS" : "LOCAL CACHE CLEARED",
+                backendCleared
+                  ? "Temporary download files and resolved stream URLs were cleared."
+                  : "Temporary download files were cleared. The audio backend could not be reached to clear its URL cache."
+              );
+            } catch (error) {
+              Alert.alert(
+                "CACHE CLEAR FAILED",
+                error instanceof Error ? error.message : "Could not clear temporary data."
+              );
             }
           },
         },

@@ -4,11 +4,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  PanResponder,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { NothingColors, NothingFonts, NothingLayout } from "../../constants/theme";
+import { NothingColors } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 import { RepeatMode } from "../../store/usePlayerStore";
 

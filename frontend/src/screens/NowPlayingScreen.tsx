@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { NothingColors, NothingFonts, NothingLayout } from "../constants/theme";
+import { NothingColors } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { VinylDisc } from "../components/player/VinylDisc";
 import { PlayerControls } from "../components/player/PlayerControls";
@@ -72,7 +72,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
     if (visible) {
       translateY.setValue(0);
     }
-  }, [visible]);
+  }, [visible, translateY]);
 
   const handleDismiss = () => {
     try {
@@ -152,7 +152,14 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
-    await downloadTrack(currentTrack);
+    try {
+      await downloadTrack(currentTrack);
+    } catch (error) {
+      Alert.alert(
+        "Download failed",
+        error instanceof Error ? error.message : "Could not save this track."
+      );
+    }
   };
 
   return (

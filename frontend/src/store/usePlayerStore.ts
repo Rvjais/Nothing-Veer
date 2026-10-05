@@ -1,6 +1,10 @@
 import { create } from "zustand";
-import { Audio, AVPlaybackStatus } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
+import TrackPlayer, {
+  State,
+  Event,
+  Capability,
+  AppKilledPlaybackBehavior,
+} from "react-native-track-player";
 import { Track } from "../types/music";
 import { StreamResolver } from "../services/streamResolver";
 import { useLibraryStore } from "./useLibraryStore";
@@ -8,6 +12,8 @@ import { useLibraryStore } from "./useLibraryStore";
 export type RepeatMode = "off" | "all" | "one";
 
 interface PlayerState {
+  isReady: boolean;
+  playbackError: string | null;
   currentTrack: Track | null;
   isPlaying: boolean;
   isBuffering: boolean;
@@ -17,14 +23,16 @@ interface PlayerState {
   queueIndex: number;
   repeatMode: RepeatMode;
   shuffle: boolean;
-  sound: Audio.Sound | null;
   volume: number;
 
+  initPlayer: () => Promise<void>;
+  clearPlaybackError: () => void;
   playTrack: (track: Track, newQueue?: Track[]) => Promise<void>;
   togglePlayPause: () => Promise<void>;
   seekTo: (seconds: number) => Promise<void>;
   playNext: () => Promise<void>;
   playPrevious: () => Promise<void>;
+  handleQueueEnded: () => Promise<void>;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   addToQueue: (track: Track) => void;
@@ -33,15 +41,12 @@ interface PlayerState {
   setVolume: (volume: number) => Promise<void>;
 }
 
-Audio.setAudioModeAsync({
-  allowsRecordingIOS: false,
-  staysActiveInBackground: true,
-  playsInSilentModeIOS: true,
-  shouldDuckAndroid: true,
-  playThroughEarpieceAndroid: false,
-}).catch(() => {});
+let playerSetupPromise: Promise<void> | null = null;
+let recoveringTrackId: string | null = null;
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
+  isReady: false,
+  playbackError: null,
   currentTrack: null,
   isPlaying: false,
   isBuffering: false,
@@ -51,13 +56,159 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   queueIndex: -1,
   repeatMode: "off",
   shuffle: false,
-  sound: null,
   volume: 1.0,
 
-  playTrack: async (track: Track, newQueue?: Track[]) => {
-    const { sound: existingSound, queue: existingQueue } = get();
+  initPlayer: async () => {
+    if (get().isReady) return;
+    if (playerSetupPromise) return playerSetupPromise;
 
-    let activeQueue = newQueue || existingQueue;
+    playerSetupPromise = (async () => {
+      try {
+        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Fast Refresh can re-run JS while the native service remains initialized.
+        if (!message.toLowerCase().includes("already been initialized")) throw error;
+      }
+
+      await TrackPlayer.updateOptions({
+        android: {
+          appKilledPlaybackBehavior: AppKilledPlaybackBehavior.ContinuePlayback,
+        },
+        capabilities: [
+          Capability.Play,
+          Capability.Pause,
+          Capability.SkipToNext,
+          Capability.SkipToPrevious,
+          Capability.SeekTo,
+        ],
+        notificationCapabilities: [
+          Capability.Play,
+          Capability.Pause,
+          Capability.SkipToNext,
+          Capability.SkipToPrevious,
+          Capability.SeekTo,
+        ],
+        compactCapabilities: [Capability.Play, Capability.Pause, Capability.SkipToNext],
+        progressUpdateEventInterval: 1,
+      });
+
+      TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
+        set({
+          isPlaying: event.state === State.Playing,
+          isBuffering:
+            event.state === State.Buffering || event.state === State.Loading,
+        });
+      });
+
+      TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, (event) => {
+        set((state) => ({
+          positionMillis: event.position * 1000,
+          durationMillis:
+            event.duration > 0 ? event.duration * 1000 : state.durationMillis,
+        }));
+      });
+
+      TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, (event) => {
+        if (!event.track) return;
+        const track = get().queue.find((item) => item.id === event.track?.id);
+        if (track) {
+          set({ currentTrack: track });
+          void useLibraryStore.getState().addToRecents(track);
+        }
+      });
+
+      TrackPlayer.addEventListener(Event.PlaybackError, async (event) => {
+        const { currentTrack, positionMillis } = get();
+        const message = event.message || "Unknown playback error.";
+        set({ isPlaying: false, isBuffering: false });
+
+        if (
+          currentTrack &&
+          message.includes("403") &&
+          recoveringTrackId !== currentTrack.id
+        ) {
+          recoveringTrackId = currentTrack.id;
+          try {
+            const resolved = await StreamResolver.getStreamUrl(
+              currentTrack.id,
+              useLibraryStore.getState().audioQuality
+            );
+            if (!resolved) throw new Error("Could not refresh the audio source.");
+
+            await TrackPlayer.reset();
+            await TrackPlayer.add({
+              id: currentTrack.id,
+              url: resolved.url,
+              title: currentTrack.title,
+              artist: currentTrack.artist,
+              artwork: currentTrack.artwork,
+              contentType: currentTrack.contentType,
+              headers: { "User-Agent": resolved.userAgent },
+            });
+            if (positionMillis > 0) {
+              await TrackPlayer.seekTo(positionMillis / 1000);
+            }
+            await TrackPlayer.play();
+            set({ playbackError: null });
+            return;
+          } catch (recoveryError) {
+            console.warn("[Player] Stream recovery failed:", recoveryError);
+          } finally {
+            recoveringTrackId = null;
+          }
+        }
+
+        const label = currentTrack?.title
+          ? currentTrack.title + " could not be played. "
+          : "Playback failed. ";
+        set({ playbackError: label + message });
+      });
+
+      set({ isReady: true });
+    })();
+
+    try {
+      await playerSetupPromise;
+    } catch (error) {
+      playerSetupPromise = null;
+      set({
+        isReady: false,
+        playbackError:
+          "Audio player initialization failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      });
+      console.error("TrackPlayer initialization error", error);
+      throw error;
+    }
+  },
+
+  clearPlaybackError: () => set({ playbackError: null }),
+
+  playTrack: async (track: Track, newQueue?: Track[]) => {
+    if (!get().isReady) {
+      try {
+        await get().initPlayer();
+      } catch (error) {
+        set({
+          isPlaying: false,
+          isBuffering: false,
+          playbackError:
+            error instanceof Error ? error.message : "The audio player is not ready.",
+        });
+        return;
+      }
+    }
+    if (!get().isReady) {
+      set({
+        isPlaying: false,
+        isBuffering: false,
+        playbackError: "The audio player is not ready.",
+      });
+      return;
+    }
+
+    let activeQueue = newQueue || get().queue;
     let idx = activeQueue.findIndex((t) => t.id === track.id);
     if (idx === -1) {
       activeQueue = [...activeQueue, track];
@@ -71,156 +222,83 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isBuffering: true,
       positionMillis: 0,
       durationMillis: (track.duration || 180) * 1000,
+      playbackError: null,
     });
 
-    useLibraryStore.getState().addToRecents(track);
-    console.log("[Player] playTrack called for:", track.id, track.title);
-
     try {
-      if (existingSound) {
-        try {
-          await existingSound.stopAsync();
-          await existingSound.unloadAsync();
-        } catch {}
-      }
+      await TrackPlayer.reset();
 
-      // 1. Check if track is available locally for instant offline playback
       let audioUri: string | undefined = track.localUri;
+      let userAgent: string | undefined = undefined;
+      const library = useLibraryStore.getState();
+
       if (!audioUri) {
-        const downloaded = useLibraryStore.getState().getDownloadedTrack(track.id);
+        const downloaded = library.getDownloadedTrack(track.id);
         if (downloaded?.localUri) {
           audioUri = downloaded.localUri;
+          track = downloaded;
         }
-      }
-
-      // 2. If not offline, resolve fresh stream URL
-      if (!audioUri) {
-        audioUri = (await StreamResolver.getStreamUrl(track.id)) || track.streamUrl;
       }
 
       if (!audioUri) {
-        throw new Error("Unable to resolve audio playback URL");
-      }
-
-      console.log("[Player] Resolved audioUri:", audioUri.substring(0, 60));
-
-      // 3. For GoogleVideo streams: cache locally via FileSystem so ExoPlayer avoids 403 Forbidden
-      if (audioUri.includes("googlevideo.com")) {
-        const cacheFile = `${FileSystem.cacheDirectory}stream_${track.id}.m4a`;
-        try {
-          const cacheInfo = await FileSystem.getInfoAsync(cacheFile);
-          if (cacheInfo.exists && (cacheInfo as any).size > 40000) {
-            audioUri = cacheFile;
-            console.log("[Player] Using existing cached stream file:", audioUri);
-          } else {
-            console.log("[Player] Downloading stream to local cache...");
-            const download = FileSystem.createDownloadResumable(
-              audioUri,
-              cacheFile,
-              {
-                headers: {
-                  "User-Agent":
-                    "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
-                  Referer: "https://www.youtube.com/",
-                },
-              }
-            );
-            const dlRes = await download.downloadAsync();
-            console.log("[Player] Download status:", dlRes?.status);
-            const cacheInfo = await FileSystem.getInfoAsync(cacheFile);
-            console.log("[Player] Downloaded file size:", (cacheInfo as any).size);
-            if (dlRes?.status === 200 || dlRes?.status === 206) {
-              audioUri = dlRes.uri;
-              console.log("[Player] Stream cached successfully:", audioUri);
-            } else {
-              console.warn("[Player] Stream download returned non-200 status:", dlRes?.status);
-            }
-          }
-        } catch (cacheErr) {
-          console.warn("[Player] Stream caching warning, falling back to direct:", cacheErr);
+        const resolved = await StreamResolver.getStreamUrl(
+          track.id,
+          library.audioQuality
+        );
+        if (resolved) {
+          audioUri = resolved.url;
+          userAgent = resolved.userAgent;
+        } else {
+          audioUri = track.streamUrl;
         }
       }
 
-      const isRemoteGoogleVideo = audioUri.includes("googlevideo.com");
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        {
-          uri: audioUri,
-          headers: isRemoteGoogleVideo
-            ? {
-                "User-Agent":
-                  "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
-                Referer: "https://www.youtube.com/",
-                Origin: "https://www.youtube.com",
-              }
-            : undefined,
-          overrideFileExtensionAndroid: isRemoteGoogleVideo ? "m4a" : undefined,
-        },
-        {
-          shouldPlay: true,
-          volume: get().volume,
-          progressUpdateIntervalMillis: 250,
-        },
-        (status: AVPlaybackStatus) => {
-          if (!status.isLoaded) return;
+      if (!audioUri) throw new Error("Unable to resolve audio playback URL");
 
-          set({
-            isPlaying: status.isPlaying,
-            isBuffering: status.isBuffering,
-            positionMillis: status.positionMillis,
-            durationMillis: status.durationMillis || (track.duration || 180) * 1000,
-          });
+      await TrackPlayer.add({
+        id: track.id,
+        url: audioUri,
+        title: track.title,
+        artist: track.artist,
+        artwork: track.artwork,
+        contentType: track.contentType,
+        headers: userAgent ? { "User-Agent": userAgent } : undefined,
+      });
 
-          if (status.didJustFinish) {
-            const { repeatMode, playNext, seekTo } = get();
-            if (repeatMode === "one") {
-              seekTo(0);
-              newSound.playAsync();
-            } else {
-              playNext();
-            }
-          }
-        }
-      );
-
-      set({ sound: newSound, isPlaying: true, isBuffering: false });
+      await TrackPlayer.play();
     } catch (error) {
       console.error("[Player] playTrack error:", error);
-      set({ isBuffering: false, isPlaying: false });
+      set({
+        isBuffering: false,
+        isPlaying: false,
+        playbackError:
+          error instanceof Error ? error.message : "Unable to start playback.",
+      });
     }
   },
 
   togglePlayPause: async () => {
-    const { sound, isPlaying, currentTrack, queue, playTrack } = get();
-    if (!sound) {
-      if (currentTrack) {
-        await playTrack(currentTrack);
-      } else if (queue.length > 0) {
-        await playTrack(queue[0]);
-      }
-      return;
-    }
-
+    const { isPlaying, currentTrack, queue, playTrack } = get();
     try {
       if (isPlaying) {
-        await sound.pauseAsync();
-        set({ isPlaying: false });
+        await TrackPlayer.pause();
       } else {
-        await sound.playAsync();
-        set({ isPlaying: true });
+        const state = (await TrackPlayer.getPlaybackState()).state;
+        if (state === State.None || state === State.Stopped) {
+          if (currentTrack) await playTrack(currentTrack);
+          else if (queue.length > 0) await playTrack(queue[0]);
+        } else {
+          await TrackPlayer.play();
+        }
       }
-    } catch (e) {}
+    } catch {}
   },
 
   seekTo: async (seconds: number) => {
-    const { sound, durationMillis } = get();
-    const targetMillis = Math.max(0, Math.min(seconds * 1000, durationMillis));
-    set({ positionMillis: targetMillis });
-
-    if (sound) {
-      try {
-        await sound.setPositionAsync(targetMillis);
-      } catch (e) {}
-    }
+    set({ positionMillis: seconds * 1000 });
+    try {
+      await TrackPlayer.seekTo(seconds);
+    } catch {}
   },
 
   playNext: async () => {
@@ -231,17 +309,46 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (shuffle) {
       nextIndex = Math.floor(Math.random() * queue.length);
     } else if (nextIndex >= queue.length) {
-      if (repeatMode === "all") {
-        nextIndex = 0;
-      } else {
+      if (repeatMode === "all") nextIndex = 0;
+      else return;
+    }
+
+    const nextTrack = queue[nextIndex];
+    if (nextTrack) await playTrack(nextTrack);
+  },
+
+  handleQueueEnded: async () => {
+    const { queue, queueIndex, repeatMode, shuffle, currentTrack } = get();
+    if (repeatMode === "one" && currentTrack) {
+      await TrackPlayer.seekTo(0);
+      await TrackPlayer.play();
+      return;
+    }
+    if (queue.length === 0) {
+      set({ isPlaying: false, isBuffering: false });
+      return;
+    }
+
+    let nextIndex = queueIndex + 1;
+    if (shuffle && queue.length > 1) {
+      const candidates = queue
+        .map((_track, index) => index)
+        .filter((index) => index !== queueIndex);
+      nextIndex = candidates[Math.floor(Math.random() * candidates.length)];
+    } else if (nextIndex >= queue.length) {
+      if (repeatMode === "all") nextIndex = 0;
+      else {
+        set({
+          isPlaying: false,
+          isBuffering: false,
+          positionMillis: get().durationMillis,
+        });
         return;
       }
     }
 
     const nextTrack = queue[nextIndex];
-    if (nextTrack) {
-      await playTrack(nextTrack);
-    }
+    if (nextTrack) await get().playTrack(nextTrack);
   },
 
   playPrevious: async () => {
@@ -254,9 +361,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (queue.length === 0) return;
     const prevIndex = queueIndex - 1 >= 0 ? queueIndex - 1 : queue.length - 1;
     const prevTrack = queue[prevIndex];
-    if (prevTrack) {
-      await playTrack(prevTrack);
-    }
+    if (prevTrack) await playTrack(prevTrack);
   },
 
   toggleShuffle: () => {
@@ -279,9 +384,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) => {
       const updated = state.queue.filter((_, i) => i !== index);
       let newIdx = state.queueIndex;
-      if (index < state.queueIndex) {
-        newIdx--;
-      } else if (index === state.queueIndex && newIdx >= updated.length) {
+      if (index < state.queueIndex) newIdx--;
+      else if (index === state.queueIndex && newIdx >= updated.length) {
         newIdx = Math.max(0, updated.length - 1);
       }
       return { queue: updated, queueIndex: newIdx };
@@ -295,12 +399,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setVolume: async (volume: number) => {
     const clamped = Math.max(0, Math.min(1, volume));
     set({ volume: clamped });
-    const { sound } = get();
-    if (sound) {
-      try {
-        await sound.setVolumeAsync(clamped);
-      } catch {}
-    }
+    try {
+      await TrackPlayer.setVolume(clamped);
+    } catch {}
   },
 }));
-

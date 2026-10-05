@@ -111,7 +111,7 @@ function parseTrackItem(item: any): Track | null {
       artwork,
       duration,
     };
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -165,7 +165,7 @@ export const YouTubeService = {
       }
 
       return tracks;
-    } catch (error) {
+    } catch {
       return await this.searchFallback(query);
     }
   },
@@ -214,7 +214,7 @@ export const YouTubeService = {
       }
 
       return tracks;
-    } catch (e) {
+    } catch {
       return [];
     }
   },
@@ -283,7 +283,7 @@ export const YouTubeService = {
       if (sections.length > 0) {
         return sections;
       }
-    } catch (e) {}
+    } catch {}
 
     return this.getCuratedHomeSections();
   },

@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../store/usePlayerStore";
-import { NothingColors, NothingFonts, NothingLayout } from "../../constants/theme";
+import { NothingColors, NothingLayout } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 import { GlyphIndicator } from "../common/GlyphIndicator";
 import { Track } from "../../types/music";

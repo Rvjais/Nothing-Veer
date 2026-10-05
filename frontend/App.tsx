@@ -1,5 +1,11 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, ActivityIndicator, PanResponder } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  PanResponder,
+  Alert,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
@@ -73,12 +79,23 @@ export default function App() {
 
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const initPlayer = usePlayerStore((s) => s.initPlayer);
+  const playbackError = usePlayerStore((s) => s.playbackError);
+  const clearPlaybackError = usePlayerStore((s) => s.clearPlaybackError);
   const { initTheme, colors, isDark } = useThemeStore();
 
   useEffect(() => {
     initTheme();
     loadLibrary();
-  }, [initTheme, loadLibrary]);
+    void initPlayer().catch(() => {});
+  }, [initTheme, loadLibrary, initPlayer]);
+
+  useEffect(() => {
+    if (!playbackError) return;
+    Alert.alert("Playback error", playbackError, [
+      { text: "OK", onPress: clearPlaybackError },
+    ]);
+  }, [playbackError, clearPlaybackError]);
 
   useEffect(() => {
     if (fontsLoaded) {

@@ -11,11 +11,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { YouTubeService } from "../services/youtube";
-import { Track, HomeFeedSection } from "../types/music";
+import { HomeFeedSection } from "../types/music";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useThemeStore } from "../store/useThemeStore";
-import { NothingColors, NothingFonts, NothingLayout } from "../constants/theme";
+import { NothingColors, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingCard } from "../components/common/NothingCard";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";

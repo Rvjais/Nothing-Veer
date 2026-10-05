@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -12,7 +12,7 @@ import {
 import Svg, { Circle, Line } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { NothingColors, NothingFonts } from "../../constants/theme";
+import { NothingColors } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -53,6 +53,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
   const scrubAngleRef = useRef(0);
   const lastAngleRef = useRef<number | null>(null);
   const lastHapticTime = useRef(0);
+  const pendingSeekRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isPlaying) {
@@ -74,7 +75,7 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
     return () => {
       if (loopRef.current) loopRef.current.stop();
     };
-  }, [isPlaying]);
+  }, [isPlaying, rotationAnim]);
 
   // Rotational DJ turntable scratch/scrub gesture
   const panResponder = useRef(
@@ -119,24 +120,21 @@ export const VinylDisc: React.FC<VinylDiscProps> = ({
             } catch {}
           }
 
-          // Accumulate internally, call onSeek only on release
-          scrubAngleRef.current = scrubAngleRef.current; // Keep it
           lastAngleRef.current = currentAngle;
-          // Save it to a ref so we can call onSeek in release
-          if (!panResponder.current.lastSeek) panResponder.current.lastSeek = newSecs;
-          panResponder.current.lastSeek = newSecs;
+          pendingSeekRef.current = newSecs;
         }
         lastAngleRef.current = currentAngle;
       },
       onPanResponderRelease: () => {
         lastAngleRef.current = null;
-        if (panResponder.current.lastSeek !== undefined) {
-          onSeek(panResponder.current.lastSeek);
-          panResponder.current.lastSeek = undefined;
+        if (pendingSeekRef.current !== null) {
+          onSeek?.(pendingSeekRef.current);
+          pendingSeekRef.current = null;
         }
       },
       onPanResponderTerminate: () => {
         lastAngleRef.current = null;
+        pendingSeekRef.current = null;
       },
     })
   ).current;
