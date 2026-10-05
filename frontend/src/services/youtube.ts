@@ -46,6 +46,8 @@ function parseTrackItem(item: any): Track | null {
       item;
 
     let id = "";
+    let contentType = "song";
+
     const playNavigation =
       renderer.overlay?.musicItemThumbnailOverlayRenderer?.content
         ?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint;
@@ -53,13 +55,21 @@ function parseTrackItem(item: any): Track | null {
       renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer
         ?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint;
     const directNavigation = renderer.navigationEndpoint?.watchEndpoint;
+    
+    const browseEndpoint = renderer.navigationEndpoint?.browseEndpoint || renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.browseEndpoint;
 
-    id =
-      playNavigation?.videoId ||
-      titleNavigation?.videoId ||
-      directNavigation?.videoId ||
-      renderer.videoId ||
-      "";
+    const pageType = browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+    if (pageType === "MUSIC_PAGE_TYPE_ALBUM" || pageType === "MUSIC_PAGE_TYPE_ARTIST" || pageType === "MUSIC_PAGE_TYPE_USER_CHANNEL") {
+      id = browseEndpoint.browseId;
+      contentType = pageType === "MUSIC_PAGE_TYPE_ALBUM" ? "album" : "artist";
+    } else {
+      id =
+        playNavigation?.videoId ||
+        titleNavigation?.videoId ||
+        directNavigation?.videoId ||
+        renderer.videoId ||
+        "";
+    }
 
     if (!id) return null;
 
@@ -100,7 +110,10 @@ function parseTrackItem(item: any): Track | null {
     }
 
     const thumbnails =
-      renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+        renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
+        renderer.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
+        renderer.thumbnail?.thumbnails ||
+        [];
     const artwork = formatArtwork(thumbnails[thumbnails.length - 1]?.url);
 
     return {
@@ -110,6 +123,7 @@ function parseTrackItem(item: any): Track | null {
       album: album ? album.trim() : undefined,
       artwork,
       duration,
+      contentType,
     };
   } catch {
     return null;
@@ -158,6 +172,11 @@ export const YouTubeService = {
             }
           }
         }
+      }
+
+      if (filter && filter !== "songs") {
+        const filtered = tracks.filter(t => t.contentType === (filter === "albums" ? "album" : "artist"));
+        if (filtered.length > 0) return filtered;
       }
 
       if (tracks.length === 0) {
@@ -334,3 +353,7 @@ export const YouTubeService = {
     return this.search(`${mood} music hits`, "songs");
   },
 };
+
+
+
+

@@ -16,6 +16,9 @@ import { NothingText } from "../components/common/NothingText";
 import { NothingCard } from "../components/common/NothingCard";
 import { DownloadManager } from "../services/downloadManager";
 import { StreamResolver } from "../services/streamResolver";
+import { YouTubeAuthModal } from "../components/auth/YouTubeAuthModal";
+import { useAuthStore } from "../store/useAuthStore";
+import CookieManager from "@react-native-cookies/cookies";
 
 export interface SettingsScreenProps {
   onBack?: () => void;
@@ -32,6 +35,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+
+  const youtubeCookie = useAuthStore((s) => s.youtubeCookie);
+  const clearYoutubeCookie = useAuthStore((s) => s.clearYoutubeCookie);
 
   useEffect(() => {
     DownloadManager.getStorageUsedBytes().then(setStorageUsed);
@@ -109,6 +116,31 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
     );
   };
 
+  const handleAuthAction = () => {
+    if (youtubeCookie) {
+      Alert.alert(
+        "SIGN OUT",
+        "Are you sure you want to remove your YouTube authentication cookies?",
+        [
+          { text: "CANCEL", style: "cancel" },
+          {
+            text: "SIGN OUT",
+            style: "destructive",
+            onPress: async () => {
+              clearYoutubeCookie();
+              try {
+                await CookieManager.clearAll();
+              } catch {}
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            },
+          },
+        ]
+      );
+    } else {
+      setAuthModalVisible(true);
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -132,6 +164,35 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
       </View>
 
       {/* APPEARANCE / THEME SECTION */}
+      <View style={styles.section}>
+        <NothingText variant="dot" size={13} color="dim" style={styles.sectionTitle}>
+          YOUTUBE AUTHENTICATION
+        </NothingText>
+
+        <NothingCard style={styles.cardGroup}>
+          <TouchableOpacity style={styles.actionRow} onPress={handleAuthAction}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <NothingText
+                variant="bodyMedium"
+                style={{ color: youtubeCookie ? colors.red : (isDark ? "#FFFFFF" : "#111111") }}
+              >
+                {youtubeCookie ? "SIGNED IN TO YOUTUBE" : "SIGN IN TO YOUTUBE"}
+              </NothingText>
+              <NothingText variant="mono" color="dim" size={11}>
+                {youtubeCookie
+                  ? "COOKIES ARE SAVED. TAP TO SIGN OUT."
+                  : "BYPASS 429 RATE LIMITS & CAPTCHAS"}
+              </NothingText>
+            </View>
+            <Ionicons
+              name={youtubeCookie ? "log-out-outline" : "log-in-outline"}
+              size={20}
+              color={youtubeCookie ? colors.red : colors.grey}
+            />
+          </TouchableOpacity>
+        </NothingCard>
+      </View>
+
       <View style={styles.section}>
         <NothingText variant="dot" size={13} color="dim" style={styles.sectionTitle}>
           APPEARANCE & THEME
@@ -522,6 +583,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
           (1) DESIGNED IN THE STYLE OF NOTHING OS
         </NothingText>
       </View>
+
+      <YouTubeAuthModal visible={authModalVisible} onClose={() => setAuthModalVisible(false)} />
     </ScrollView>
   );
 };

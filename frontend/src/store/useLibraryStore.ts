@@ -15,7 +15,7 @@ interface LibraryState {
   recents: Track[];
   playlists: PlaylistData[];
   downloadedTracks: Track[];
-  activeDownloads: Record<string, number>; // trackId -> progress 0..1
+  activeDownloads: Record<string, { progress: number; totalBytes: number }>; // trackId -> progress 0..1
   audioQuality: AudioQuality;
 
   toggleFavorite: (track: Track) => Promise<void>;
@@ -129,13 +129,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     // Set initial progress
     set((state) => ({
-      activeDownloads: { ...state.activeDownloads, [track.id]: 0.05 },
+      activeDownloads: { ...state.activeDownloads, [track.id]: { progress: 0.05, totalBytes: 0 } },
     }));
 
     try {
-      const savedTrack = await DownloadManager.downloadTrack(track, (progress) => {
+      const savedTrack = await DownloadManager.downloadTrack(track, (progress, totalBytes) => {
         set((state) => ({
-          activeDownloads: { ...state.activeDownloads, [track.id]: progress },
+          activeDownloads: { ...state.activeDownloads, [track.id]: { progress, totalBytes } },
         }));
       }, get().audioQuality);
 
@@ -217,3 +217,4 @@ async function saveState(state: Partial<LibraryState>) {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
   } catch {}
 }
+

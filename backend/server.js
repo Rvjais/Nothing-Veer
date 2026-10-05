@@ -46,7 +46,7 @@ function getExpiry(url) {
   return Date.now() + 5 * 60_000;
 }
 
-async function getStreamUrl(videoId, quality, forceRefresh = false) {
+async function getStreamUrl(videoId, quality, forceRefresh = false, cookieString = "") {
   const key = cacheKey(videoId, quality);
   const cached = streamCache.get(key);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
@@ -68,6 +68,10 @@ async function getStreamUrl(videoId, quality, forceRefresh = false) {
     "-g",
     "https://www.youtube.com/watch?v=" + videoId,
   ];
+
+  if (cookieString) {
+    commandArgs.push("--add-header", "Cookie: " + cookieString);
+  }
 
   const resolution = new Promise((resolve, reject) => {
     execFile(
@@ -191,8 +195,10 @@ app.get("/resolve", async (request, response) => {
   }
 
   const quality = normalizeQuality(request.query.quality);
+  const cookieString = request.headers["x-youtube-cookie"];
+
   try {
-    await getStreamUrl(videoId, quality);
+    await getStreamUrl(videoId, quality, false, cookieString);
     response.json({ ready: true });
   } catch (error) {
     if (error && error.code === "ENOENT") {
@@ -215,17 +221,18 @@ app.get("/stream", async (request, response) => {
   }
 
   const quality = normalizeQuality(request.query.quality);
+  const cookieString = request.headers["x-youtube-cookie"];
   const key = cacheKey(videoId, quality);
   const range = request.headers.range;
 
   try {
-    let upstreamUrl = await getStreamUrl(videoId, quality);
+    let upstreamUrl = await getStreamUrl(videoId, quality, false, cookieString);
     let upstream = await openUpstream(upstreamUrl, range);
 
     if ([401, 403].includes(upstream.statusCode) && !response.headersSent) {
       upstream.resume();
       streamCache.delete(key);
-      upstreamUrl = await getStreamUrl(videoId, quality, true);
+      upstreamUrl = await getStreamUrl(videoId, quality, true, cookieString);
       upstream = await openUpstream(upstreamUrl, range);
     }
 

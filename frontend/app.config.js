@@ -17,6 +17,7 @@ module.exports = ({ config }) => {
           },
         },
       ],
+      "expo-web-browser"
     ],
   };
 };

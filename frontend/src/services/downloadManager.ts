@@ -40,7 +40,7 @@ export class DownloadManager {
 
   public static async downloadTrack(
     track: Track,
-    onProgress?: (progress: number) => void,
+    onProgress?: (progress: number, totalBytes: number) => void,
     quality: AudioQuality = "high"
   ): Promise<Track> {
     await this.ensureDirExists();
@@ -68,7 +68,8 @@ export class DownloadManager {
         const total = progress.totalBytesExpectedToWrite;
         if (total > 0 && onProgress) {
           onProgress(
-            Math.min(1, Math.max(0, progress.totalBytesWritten / total))
+            Math.min(1, Math.max(0, progress.totalBytesWritten / total)),
+            total
           );
         }
       }
@@ -158,3 +159,4 @@ export class DownloadManager {
     return (mb / 1024).toFixed(2) + " GB";
   }
 }
+

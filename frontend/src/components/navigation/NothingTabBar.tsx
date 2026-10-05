@@ -113,6 +113,7 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
   const pillPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dx) > DRAG_THRESHOLD && Math.abs(gesture.dx) > Math.abs(gesture.dy),
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > DRAG_THRESHOLD && Math.abs(gesture.dx) > Math.abs(gesture.dy),
       onPanResponderGrant: () => {
         dragDidMoveRef.current = true;
@@ -323,5 +324,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.55,
   },
 });
+
 
 

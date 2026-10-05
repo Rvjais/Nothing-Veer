@@ -297,7 +297,23 @@ export const DownloadsScreen: React.FC<DownloadsScreenProps> = ({
         )}
       </View>
 
-      {/* Main Content Area */}
+      {activeDownloadCount > 0 && (
+          <View style={[styles.downloadNotice, { backgroundColor: colors.surfaceMid, borderColor: colors.red }]}>
+            <Ionicons name="arrow-down-circle" size={16} color={colors.red} />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <NothingText variant="dot" size={11} color="red">
+                DOWNLOADING {activeDownloadCount} FILE{activeDownloadCount > 1 ? "S" : ""}
+              </NothingText>
+              {Object.values(activeDownloads).slice(0, 1).map((d, i) => (
+                <NothingText key={i} size={10} color="red" style={{ marginTop: 2 }}>
+                  {Math.round(d.progress * 100)}% {d.totalBytes > 0 ? `• ${DownloadManager.formatBytes(d.totalBytes)}` : ""}
+                </NothingText>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Main Content Area */}
       <View style={styles.content}>
         {/* DOWNLOADS TAB */}
         {activeTab === "downloads" && (
@@ -690,4 +706,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
 });
+
+
 

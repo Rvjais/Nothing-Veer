@@ -144,7 +144,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
               artist: currentTrack.artist,
               artwork: currentTrack.artwork,
               contentType: currentTrack.contentType,
-              headers: { "User-Agent": resolved.userAgent },
+              headers: {
+                "User-Agent": resolved.userAgent,
+                ...(resolved.cookie ? { "x-youtube-cookie": resolved.cookie } : {})
+              },
             });
             if (positionMillis > 0) {
               await TrackPlayer.seekTo(positionMillis / 1000);
@@ -230,6 +233,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
       let audioUri: string | undefined = track.localUri;
       let userAgent: string | undefined = undefined;
+      let cookieHeader: string | undefined = undefined;
       const library = useLibraryStore.getState();
 
       if (!audioUri) {
@@ -248,12 +252,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (resolved) {
           audioUri = resolved.url;
           userAgent = resolved.userAgent;
+          cookieHeader = resolved.cookie;
         } else {
           audioUri = track.streamUrl;
         }
       }
 
       if (!audioUri) throw new Error("Unable to resolve audio playback URL");
+
+      const headers: Record<string, string> = {};
+      if (userAgent) headers["User-Agent"] = userAgent;
+      if (cookieHeader) headers["x-youtube-cookie"] = cookieHeader;
 
       await TrackPlayer.add({
         id: track.id,
@@ -262,7 +271,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         artist: track.artist,
         artwork: track.artwork,
         contentType: track.contentType,
-        headers: userAgent ? { "User-Agent": userAgent } : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
       });
 
       await TrackPlayer.play();

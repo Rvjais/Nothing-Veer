@@ -1,9 +1,11 @@
 import { NativeModules, Platform } from "react-native";
 import { AudioQuality } from "../types/music";
+import { useAuthStore } from "../store/useAuthStore";
 
 export interface ResolvedStream {
   url: string;
   userAgent: string;
+  cookie?: string;
 }
 
 const USER_AGENT =
@@ -48,15 +50,15 @@ function getBackendBaseUrl(): string {
 
   // This is the Android emulator's host-machine address. Physical devices
   // should use the Metro host above or an explicit EXPO_PUBLIC_BACKEND_URL.
-  if (Platform.OS === "android") return "http://10.0.2.2:3000";
+  if (Platform.OS === "android") return "http://127.0.0.1:3000";
   return "http://127.0.0.1:3000";
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs: number = 20_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -67,7 +69,7 @@ export const StreamResolver = {
     videoId: string,
     quality: AudioQuality = "high"
   ): Promise<ResolvedStream | null> {
-    if (!videoId) return null;
+    if (!videoId) return null; console.log("RESOLVING:", videoId);
 
     const baseUrl = getBackendBaseUrl();
     const params = new URLSearchParams({
@@ -76,9 +78,15 @@ export const StreamResolver = {
     });
     const resolveUrl = baseUrl + "/resolve?" + params.toString();
 
+    const cookie = useAuthStore.getState().youtubeCookie;
+    const headers: Record<string, string> = {};
+    if (cookie) {
+      headers["x-youtube-cookie"] = cookie;
+    }
+
     let response: Response;
     try {
-      response = await fetchWithTimeout(resolveUrl, RESOLVE_TIMEOUT_MS);
+      response = await fetchWithTimeout(resolveUrl, { headers }, RESOLVE_TIMEOUT_MS);
     } catch (error) {
       const reason =
         error instanceof Error && error.name === "AbortError"
@@ -95,13 +103,15 @@ export const StreamResolver = {
     return {
       url: baseUrl + "/stream?" + params.toString(),
       userAgent: USER_AGENT,
+      cookie: cookie || undefined,
     };
   },
 
   async clearCache(): Promise<void> {
-    const response = await fetchWithTimeout(getBackendBaseUrl() + "/cache", 5000);
+    const response = await fetchWithTimeout(getBackendBaseUrl() + "/cache", {}, 5000);
     if (!response.ok) {
       throw new Error("The audio backend could not clear its stream cache.");
     }
   },
 };
+

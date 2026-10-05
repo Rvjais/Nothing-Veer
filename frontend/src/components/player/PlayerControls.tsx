@@ -65,6 +65,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 }) => {
   const { colors, isDark } = useThemeStore();
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
   const [scrubPositionMillis, setScrubPositionMillis] = useState(positionMillis);
   const [vinylPreviewMillis, setVinylPreviewMillis] = useState<number | null>(null);
   const timelineWidthRef = useRef(1);
@@ -125,6 +126,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (_event, gestureState) => {
         setIsScrubbing(true);
+        Animated.spring(scaleAnim, { toValue: 1.15, tension: 150, friction: 6, useNativeDriver: true }).start();
         updateScrubPosition(gestureState.x0 - timelineLeftRef.current);
       },
       onPanResponderMove: (_event, gestureState) => {
@@ -140,9 +142,11 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           seek(nextPosition / 1000);
         }
         setIsScrubbing(false);
+          Animated.spring(scaleAnim, { toValue: 1, tension: 150, friction: 6, useNativeDriver: true }).start();
       },
       onPanResponderTerminate: () => {
         setIsScrubbing(false);
+          Animated.spring(scaleAnim, { toValue: 1, tension: 150, friction: 6, useNativeDriver: true }).start();
       },
     })
   ).current;
@@ -482,6 +486,7 @@ const styles = StyleSheet.create({
     right: 5,
   },
 });
+
 
 
 

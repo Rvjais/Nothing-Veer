@@ -47,6 +47,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
   const [results, setResults] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [filterType, setFilterType] = useState<"songs" | "albums" | "artists">("songs");
+  const [activeCollection, setActiveCollection] = useState<{ title: string; type: string; id: string; artwork: string } | null>(null);
+  const [collectionTracks, setCollectionTracks] = useState<Track[]>([]);
+  const [loadingCollection, setLoadingCollection] = useState(false);
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -89,7 +93,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     setLoading(true);
 
     try {
-      const tracks = await YouTubeService.search(searchTerm, "songs");
+      const tracks = await YouTubeService.search(searchTerm, filterType);
       setResults(tracks);
     } catch (error) {
       Alert.alert(
@@ -101,7 +105,18 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     }
   };
 
-  const handleTrackPress = (track: Track) => {
+  const handleTrackPress = async (track: Track) => {
+    if (track.contentType === "album" || track.contentType === "artist") {
+      setActiveCollection({ title: track.title, type: track.contentType, id: track.id, artwork: track.artwork });
+      setLoadingCollection(true);
+      try {
+        const tracks = await YouTubeService.search(track.title + " " + track.artist, "songs");
+        setCollectionTracks(tracks);
+      } catch (e) {}
+      setLoadingCollection(false);
+      return;
+    }
+
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
@@ -203,6 +218,82 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     );
   };
 
+  if (activeCollection) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveCollection(null)} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? "#FFFFFF" : "#111111"} />
+          </TouchableOpacity>
+          <NothingText variant="dot" size={16} color="white" numberOfLines={1} style={{ flex: 1, color: isDark ? "#FFFFFF" : "#111111" }}>
+            {activeCollection.title.toUpperCase()}
+          </NothingText>
+        </View>
+
+        <View style={{ flexDirection: "row", paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
+          <Image source={{ uri: activeCollection.artwork }} style={{ width: 80, height: 80, borderRadius: 12, backgroundColor: colors.surfaceHigh }} />
+          <View style={{ flex: 1, marginLeft: 16, justifyContent: "center" }}>
+            <NothingText variant="dot" size={14} color="dim">{activeCollection.type.toUpperCase()}</NothingText>
+            <View style={{ flexDirection: "row", marginTop: 12, gap: 8 }}>
+              <TouchableOpacity onPress={() => {
+                const lib = useLibraryStore.getState();
+                lib.createPlaylist(activeCollection.title).then(p => {
+                  collectionTracks.forEach(t => lib.addToPlaylist(p, t));
+                  Alert.alert("Saved", "Added to your Library Playlists.");
+                });
+              }} style={{ backgroundColor: colors.red, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
+                <NothingText size={10} color="white">SAVE</NothingText>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => {
+                const lib = useLibraryStore.getState();
+                collectionTracks.forEach(t => lib.downloadTrack(t));
+                Alert.alert("Downloading", "Album tracks are downloading.");
+              }} style={{ borderColor: colors.borderSubtle, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
+                <NothingText size={10} color="dim">DOWNLOAD ALL</NothingText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {loadingCollection ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="small" color={colors.red} />
+          </View>
+        ) : (
+          <FlatList
+            data={collectionTracks}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              const isCurrent = currentTrack?.id === item.id;
+              const downloaded = isDownloaded(item.id);
+              const downloading = activeDownloads[item.id] !== undefined;
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    usePlayerStore.getState().playTrack(item, collectionTracks);
+                    onTrackSelect?.(item);
+                  }}
+                  style={[styles.trackRow, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle, borderBottomColor: colors.borderSubtle, marginHorizontal: 16 }, isCurrent && { backgroundColor: isDark ? "rgba(215, 25, 33, 0.12)" : "rgba(215, 25, 33, 0.08)" }]}
+                >
+                  <View style={styles.trackDetails}>
+                    <NothingText numberOfLines={1} size={14} variant={isCurrent ? "bodyMedium" : "body"} style={{ color: isCurrent ? colors.red : (isDark ? "#FFFFFF" : "#111111") }}>{item.title}</NothingText>
+                    <NothingText numberOfLines={1} size={12} color="grey" style={{ marginTop: 2, color: colors.grey }}>{item.artist}</NothingText>
+                  </View>
+                  {isCurrent && <View style={styles.glyphWrapper}><GlyphIndicator isPlaying={isPlaying} size={14} /></View>}
+                  <TouchableOpacity activeOpacity={0.7} onPress={() => downloadTrack(item)} style={styles.actionBtn} disabled={downloading || downloaded}>
+                    {downloading ? <ActivityIndicator size="small" color={colors.red} /> : <Ionicons name={downloaded ? "cloud-done" : "download-outline"} size={18} color={downloaded ? colors.red : colors.grey} />}
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            }}
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
@@ -283,13 +374,44 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
             </NothingText>
           </View>
         ) : (
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.id}
-            renderItem={renderTrackItem}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          />
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", paddingHorizontal: 20, marginBottom: 12, gap: 10 }}>
+              {["songs", "albums", "artists"].map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  onPress={() => {
+                    setFilterType(type as any);
+                    if (query.trim()) {
+                      setLoading(true);
+                      YouTubeService.search(query, type as any).then(res => {
+                        setResults(res);
+                        setLoading(false);
+                      });
+                    }
+                  }}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: filterType === type ? colors.red : colors.borderSubtle,
+                    backgroundColor: filterType === type ? (isDark ? "rgba(215, 25, 33, 0.1)" : "rgba(215, 25, 33, 0.05)") : "transparent"
+                  }}
+                >
+                  <NothingText size={12} color={filterType === type ? "red" : "dim"}>
+                    {type.toUpperCase()}
+                  </NothingText>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <FlatList
+              data={results}
+              keyExtractor={(item) => item.id}
+              renderItem={renderTrackItem}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+            />
+          </View>
         )
       ) : (
         <ScrollView
@@ -414,5 +536,7 @@ const styles = StyleSheet.create({
     borderColor: NothingColors.borderSubtle,
   },
 });
+
+
 
 
