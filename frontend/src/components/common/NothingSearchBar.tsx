@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { NothingColors, NothingFonts, NothingLayout } from "../../constants/theme";
+import { useThemeStore } from "../../store/useThemeStore";
 
 export interface NothingSearchBarProps extends TextInputProps {
   value: string;
@@ -21,25 +22,27 @@ export const NothingSearchBar: React.FC<NothingSearchBarProps> = ({
   onChangeText,
   onClear,
   onSubmit,
+  style: inputStyle,
   placeholder = "SEARCH SONGS, ARTISTS, ALBUMS...",
   ...props
 }) => {
+  const { colors } = useThemeStore();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }]}>
       <Ionicons
         name="search"
         size={18}
-        color={NothingColors.grey}
+        color={colors.grey}
         style={styles.icon}
       />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={NothingColors.grey}
+        placeholderTextColor={colors.grey}
         returnKeyType="search"
         onSubmitEditing={onSubmit}
-        style={styles.input}
+        style={[styles.input, { color: colors.white }, inputStyle]}
         {...props}
       />
       {value.length > 0 && (
@@ -51,7 +54,7 @@ export const NothingSearchBar: React.FC<NothingSearchBarProps> = ({
           }}
           style={styles.clearBtn}
         >
-          <Ionicons name="close-circle" size={18} color={NothingColors.grey} />
+          <Ionicons name="close-circle" size={18} color={colors.grey} />
         </TouchableOpacity>
       )}
     </View>
@@ -83,4 +86,3 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
-

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { YouTubeService } from "../services/youtube";
-import { HomeFeedSection } from "../types/music";
+import { HomeFeedSection, Track } from "../types/music";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useThemeStore } from "../store/useThemeStore";
@@ -20,16 +20,7 @@ import { NothingText } from "../components/common/NothingText";
 import { NothingCard } from "../components/common/NothingCard";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
 
-const MOODS = [
-  "ALL",
-  "TRENDING",
-  "CHILL",
-  "SYNTH",
-  "WORKOUT",
-  "POP",
-  "ROCK",
-  "HIP-HOP",
-];
+
 
 export interface HomeScreenProps {
   onOpenSearch: () => void;
@@ -43,7 +34,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [sections, setSections] = useState<HomeFeedSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedMood, setSelectedMood] = useState("ALL");
+  const [activeSection, setActiveSection] = useState<{ title: string; items: Track[] } | null>(null);
+  
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -67,29 +59,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     fetchFeed();
   }, []);
 
-  const handleMoodSelect = async (mood: string) => {
-    setSelectedMood(mood);
-    if (mood === "ALL") {
-      fetchFeed();
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const tracks = await YouTubeService.getMoodTracks(mood);
-      setSections([
-        {
-          title: `${mood.toUpperCase()} TRACKS`,
-          subtitle: "EXPLORE ON YOUTUBE MUSIC",
-          items: tracks,
-        },
-      ]);
-    } catch (e) {
-      console.warn(e);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -97,6 +66,52 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     if (hour < 17) return "GOOD AFTERNOON";
     return "GOOD EVENING";
   };
+
+  if (activeSection) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setActiveSection(null)} style={{ padding: 8, marginLeft: -8 }}>
+            <Ionicons name="arrow-back" size={24} color={isDark ? "#FFFFFF" : "#111111"} />
+          </TouchableOpacity>
+          <View style={{ flex: 1, paddingLeft: 12 }}>
+            <NothingText variant="dot" size={20} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
+              {activeSection.title}
+            </NothingText>
+          </View>
+        </View>
+        <FlatList
+          data={activeSection.items}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          contentContainerStyle={{ paddingBottom: 180, paddingHorizontal: 20, paddingTop: 10 }}
+          renderItem={({ item }) => {
+            const isCurrent = currentTrack?.id === item.id;
+            return (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => playTrack(item, activeSection.items)}
+                style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}
+              >
+                <Image
+                  source={{ uri: item.artwork }}
+                  style={{ width: 56, height: 56, borderRadius: 8, backgroundColor: colors.surfaceLow }}
+                />
+                <View style={{ flex: 1, marginLeft: 14, paddingRight: 12 }}>
+                  <NothingText numberOfLines={1} variant="bodyMedium" size={15} style={{ color: isCurrent ? colors.red : (isDark ? "#FFFFFF" : "#111111") }}>
+                    {item.title}
+                  </NothingText>
+                  <NothingText numberOfLines={1} size={13} color="dim" style={{ marginTop: 4 }}>
+                    {item.artist}
+                  </NothingText>
+                </View>
+                {isCurrent && <GlyphIndicator isPlaying={isPlaying} size={14} />}
+              </TouchableOpacity>
+            );
+          }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -140,36 +155,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         }
       >
-        {/* Mood Filter Capsules */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.moodScroll}
-        >
-          {MOODS.map((mood) => {
-            const isSelected = selectedMood === mood;
-            return (
-              <TouchableOpacity
-                key={mood}
-                activeOpacity={0.75}
-                onPress={() => handleMoodSelect(mood)}
-                style={[
-                  styles.moodPill,
-                  isSelected && styles.moodPillActive,
-                ]}
-              >
-                <NothingText
-                  variant="dot"
-                  size={12}
-                  color={isSelected ? "white" : "grey"}
-                >
-                  {mood}
-                </NothingText>
-                {isSelected && <View style={styles.moodDot} />}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+
 
         {/* Featured Widget Card */}
         {currentTrack ? (
@@ -181,7 +167,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <View style={styles.featuredContent}>
               <Image
                 source={{ uri: currentTrack.artwork }}
-                style={styles.featuredArt}
+                style={[styles.featuredArt, { backgroundColor: colors.surfaceHigh }]}
               />
               <View style={styles.featuredText}>
                 <View style={styles.tagRow}>
@@ -216,7 +202,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   size={18}
                   style={{ marginTop: 4 }}
                 >
-                  YOUTUBE MUSIC ENGINE
+                  STREAMING ENGINE
                 </NothingText>
                 <NothingText size={12} color="grey" style={{ marginTop: 2 }}>
                   Millions of tracks • Synced lyrics • High bitrate
@@ -225,26 +211,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={onOpenSearch}
-                style={styles.exploreCircle}
+                style={[styles.exploreCircle, { backgroundColor: colors.surfaceHigh }]}
               >
-                <Ionicons name="arrow-forward" size={18} color={NothingColors.background} />
+                <Ionicons name="arrow-forward" size={18} color={colors.white} />
               </TouchableOpacity>
             </View>
           </NothingCard>
         )}
 
         {/* Recently Played if any */}
-        {recents.length > 0 && selectedMood === "ALL" && (
+        {recents.length > 0  && (
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
-              <NothingText variant="dot" size={16}>
-                RECENTLY PLAYED
-              </NothingText>
-              <NothingText variant="mono" size={11} color="grey">
-                {recents.length} TRACKS
-              </NothingText>
+              <View style={{ flex: 1 }}>
+                <NothingText variant="dot" size={16}>
+                  RECENTLY PLAYED
+                </NothingText>
+                <NothingText variant="mono" size={11} color="grey" style={{ marginTop: 2 }}>
+                  {recents.length} TRACKS
+                </NothingText>
+              </View>
+              <TouchableOpacity activeOpacity={0.7} style={{ padding: 4 }} onPress={() => setActiveSection({ title: "RECENTLY PLAYED", items: recents })}>
+                <Ionicons name="chevron-forward" size={20} color={colors.grey} />
+              </TouchableOpacity>
             </View>
-
             <FlatList
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -256,7 +246,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   onPress={() => playTrack(item, recents)}
                   style={styles.recentItem}
                 >
-                  <Image source={{ uri: item.artwork }} style={styles.recentArt} />
+                  <Image source={{ uri: item.artwork }} style={[styles.recentArt, { backgroundColor: colors.surfaceLow }]} />
                   <NothingText
                     numberOfLines={1}
                     size={13}
@@ -284,14 +274,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               color="grey"
               style={{ marginTop: 12 }}
             >
-              FETCHING YOUTUBE MUSIC...
+              FETCHING ONLINE CATALOG...
             </NothingText>
           </View>
         ) : (
           sections.map((section, sIdx) => (
             <View key={sIdx} style={styles.sectionContainer}>
               <View style={styles.sectionHeader}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <NothingText variant="dot" size={16}>
                     {section.title}
                   </NothingText>
@@ -301,8 +291,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     </NothingText>
                   )}
                 </View>
+                <TouchableOpacity activeOpacity={0.7} style={{ padding: 4 }} onPress={() => setActiveSection({ title: section.title, items: section.items })}>
+                  <Ionicons name="chevron-forward" size={20} color={colors.grey} />
+                </TouchableOpacity>
               </View>
-
               <FlatList
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -316,7 +308,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       onPress={() => playTrack(item, section.items)}
                       style={styles.trackCard}
                     >
-                      <View style={styles.artWrapper}>
+                        <View style={[styles.artWrapper, { backgroundColor: colors.surfaceLow }]}>
                         <Image
                           source={{ uri: item.artwork }}
                           style={styles.trackArt}
@@ -398,7 +390,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 180,
   },
   moodScroll: {
     paddingHorizontal: 20,
@@ -532,3 +524,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 });
+
+
+
+
+
+
+

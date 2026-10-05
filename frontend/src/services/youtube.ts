@@ -290,8 +290,11 @@ export const YouTubeService = {
 
   async getCuratedHomeSections(): Promise<HomeFeedSection[]> {
     const popularPicks = await this.search("Top Hits 2026", "songs");
+    const newReleases = await this.search("New Releases", "songs");
     const synthwavePicks = await this.search("Cyberpunk Synthwave", "songs");
+    const workoutPicks = await this.search("Workout Gym Motivation", "songs");
     const ambientPicks = await this.search("Minimal Lo-Fi Chill", "songs");
+    const globalPicks = await this.search("Global Top 50", "songs");
 
     return [
       {
@@ -300,14 +303,29 @@ export const YouTubeService = {
         items: popularPicks.slice(0, 8),
       },
       {
+        title: "NEW RELEASES",
+        subtitle: "LATEST DROPS",
+        items: newReleases.slice(0, 8),
+      },
+      {
         title: "SYNTH & GLYPH",
         subtitle: "INSPIRED BY NOTHING",
         items: synthwavePicks.slice(0, 8),
       },
       {
+        title: "PUMP & GRIND",
+        subtitle: "WORKOUT BEATS",
+        items: workoutPicks.slice(0, 8),
+      },
+      {
         title: "FOCUS & MINIMAL",
         subtitle: "CHILL BEATS",
         items: ambientPicks.slice(0, 8),
+      },
+      {
+        title: "GLOBAL TOP",
+        subtitle: "CHART TOPPERS",
+        items: globalPicks.slice(0, 8),
       },
     ];
   },

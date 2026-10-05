@@ -23,16 +23,16 @@ import { NothingButton } from "../components/common/NothingButton";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
 import { DownloadManager } from "../services/downloadManager";
 
-export interface LibraryScreenProps {
+export interface DownloadsScreenProps {
   onOpenNowPlaying?: () => void;
 }
 
 type TabType = "favorites" | "recents" | "playlists" | "downloads";
 
-export const LibraryScreen: React.FC<LibraryScreenProps> = ({
+export const DownloadsScreen: React.FC<DownloadsScreenProps> = ({
   onOpenNowPlaying,
 }) => {
-  const [activeTab, setActiveTab] = useState<TabType>("favorites");
+  const [activeTab, setActiveTab] = useState<TabType>("downloads");
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -296,132 +296,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           />
         )}
       </View>
-
-      {/* Segment Tabs with Horizontal Scroll */}
-      <View style={{ height: 48, marginBottom: 8 }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsRow}
-        >
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={[
-            styles.tabChip,
-            { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
-            activeTab === "favorites" && {
-              backgroundColor: colors.surfaceHigh,
-              borderColor: colors.red,
-            },
-          ]}
-          onPress={() => {
-            setActiveTab("favorites");
-            setSelectedPlaylistId(null);
-          }}
-        >
-          <NothingText
-            variant="dot"
-            size={11.5}
-            color={activeTab === "favorites" ? "white" : "dim"}
-            style={{ color: activeTab === "favorites" ? (isDark ? "#FFF" : "#000") : colors.grey }}
-          >
-            FAVORITES ({favorites.length})
-          </NothingText>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={[
-            styles.tabChip,
-            { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
-            activeTab === "downloads" && {
-              backgroundColor: colors.surfaceHigh,
-              borderColor: colors.red,
-            },
-          ]}
-          onPress={() => {
-            setActiveTab("downloads");
-            setSelectedPlaylistId(null);
-          }}
-        >
-          <View style={styles.downloadTabRow}>
-            <Ionicons
-              name="download"
-              size={12}
-              color={activeTab === "downloads" ? colors.red : colors.grey}
-            />
-            <NothingText
-              variant="dot"
-              size={11.5}
-              color={activeTab === "downloads" ? "white" : "dim"}
-              style={{
-                color: activeTab === "downloads" ? (isDark ? "#FFF" : "#000") : colors.grey,
-                marginLeft: 4,
-              }}
-            >
-              DOWNLOADS ({downloadedTracks.length})
-            </NothingText>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={[
-            styles.tabChip,
-            { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
-            activeTab === "recents" && {
-              backgroundColor: colors.surfaceHigh,
-              borderColor: colors.red,
-            },
-          ]}
-          onPress={() => {
-            setActiveTab("recents");
-            setSelectedPlaylistId(null);
-          }}
-        >
-          <NothingText
-            variant="dot"
-            size={11.5}
-            color={activeTab === "recents" ? "white" : "dim"}
-            style={{ color: activeTab === "recents" ? (isDark ? "#FFF" : "#000") : colors.grey }}
-          >
-            RECENTS ({recents.length})
-          </NothingText>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={[
-            styles.tabChip,
-            { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
-            activeTab === "playlists" && {
-              backgroundColor: colors.surfaceHigh,
-              borderColor: colors.red,
-            },
-          ]}
-          onPress={() => setActiveTab("playlists")}
-        >
-          <NothingText
-            variant="dot"
-            size={11.5}
-            color={activeTab === "playlists" ? "white" : "dim"}
-            style={{ color: activeTab === "playlists" ? (isDark ? "#FFF" : "#000") : colors.grey }}
-          >
-            PLAYLISTS ({playlists.length})
-          </NothingText>
-        </TouchableOpacity>
-        </ScrollView>
-      </View>
-
-      {/* Active Download Progress Notice */}
-      {activeDownloadCount > 0 && (
-        <View style={[styles.downloadNotice, { backgroundColor: colors.surfaceMid, borderColor: colors.red }]}>
-          <Ionicons name="arrow-down-circle" size={16} color={colors.red} />
-          <NothingText variant="dot" size={11} color="red" style={{ marginLeft: 8, flex: 1 }}>
-            DOWNLOADING {activeDownloadCount} TRACK{activeDownloadCount > 1 ? "S" : ""} FOR OFFLINE PLAY...
-          </NothingText>
-        </View>
-      )}
 
       {/* Main Content Area */}
       <View style={styles.content}>

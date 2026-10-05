@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { NothingColors, NothingLayout } from "../../constants/theme";
+import { useThemeStore } from "../../store/useThemeStore";
 import { NothingText } from "./NothingText";
 
 export interface NothingButtonProps {
@@ -31,6 +32,7 @@ export const NothingButton: React.FC<NothingButtonProps> = ({
   loading = false,
   style,
 }) => {
+  const { colors } = useThemeStore();
   const handlePress = () => {
     if (disabled || loading) return;
     try {
@@ -40,6 +42,14 @@ export const NothingButton: React.FC<NothingButtonProps> = ({
   };
 
   const isCircle = variant === "circle";
+  const themedVariantStyle =
+    variant === "primary"
+      ? { backgroundColor: colors.red }
+      : variant === "secondary" || isCircle
+        ? { backgroundColor: colors.surfaceHigh, borderColor: colors.borderSubtle }
+        : variant === "outline"
+          ? { borderColor: colors.borderActive }
+          : null;
 
   return (
     <TouchableOpacity
@@ -49,6 +59,7 @@ export const NothingButton: React.FC<NothingButtonProps> = ({
       style={[
         styles.base,
         styles[variant],
+        themedVariantStyle,
         styles[size],
         isCircle && styles[`circle_${size}` as keyof typeof styles],
         disabled && styles.disabled,
@@ -58,7 +69,7 @@ export const NothingButton: React.FC<NothingButtonProps> = ({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === "primary" ? NothingColors.white : NothingColors.red}
+          color={variant === "primary" ? "#FFFFFF" : colors.red}
         />
       ) : (
         <>
@@ -68,7 +79,10 @@ export const NothingButton: React.FC<NothingButtonProps> = ({
               variant="dot"
               color={variant === "primary" ? "white" : "white"}
               size={size === "sm" ? 12 : size === "lg" ? 16 : 14}
-              style={[icon ? { marginLeft: 8 } : null]}
+              style={[
+                icon ? { marginLeft: 8 } : null,
+                { color: variant === "primary" ? "#FFFFFF" : colors.white },
+              ]}
             >
               {title}
             </NothingText>
@@ -135,4 +149,3 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
 });
-

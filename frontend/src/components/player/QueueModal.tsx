@@ -9,10 +9,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../store/usePlayerStore";
-import { NothingColors, NothingLayout } from "../../constants/theme";
+import { NothingLayout } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 import { GlyphIndicator } from "../common/GlyphIndicator";
 import { Track } from "../../types/music";
+import { useThemeStore } from "../../store/useThemeStore";
 
 export interface QueueModalProps {
   visible: boolean;
@@ -20,6 +21,7 @@ export interface QueueModalProps {
 }
 
 export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
+  const { colors } = useThemeStore();
   const queue = usePlayerStore((s) => s.queue);
   const queueIndex = usePlayerStore((s) => s.queueIndex);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -34,7 +36,15 @@ export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => playTrack(item)}
-        style={[styles.itemContainer, isCurrent && styles.activeItem]}
+        style={[
+          styles.itemContainer,
+          { backgroundColor: colors.surfaceLow },
+          isCurrent && styles.activeItem,
+          isCurrent && {
+            backgroundColor: colors.surfaceMid,
+            borderColor: colors.borderActive,
+          },
+        ]}
       >
         <Image source={{ uri: item.artwork }} style={styles.itemArtwork} />
 
@@ -65,7 +75,7 @@ export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
             }}
             style={styles.removeBtn}
           >
-            <Ionicons name="close" size={18} color={NothingColors.grey} />
+            <Ionicons name="close" size={18} color={colors.grey} />
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -80,8 +90,13 @@ export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
       onRequestClose={onClose}
     >
       <View style={styles.backdrop}>
-        <View style={styles.sheetContainer}>
-          <View style={styles.header}>
+        <View
+          style={[
+            styles.sheetContainer,
+            { backgroundColor: colors.surfaceLowest, borderColor: colors.borderSubtle },
+          ]}
+        >
+          <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
             <View>
               <NothingText variant="dot" size={18}>
                 PLAYING QUEUE
@@ -96,7 +111,7 @@ export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={clearQueue}
-                  style={styles.clearBtn}
+                  style={[styles.clearBtn, { backgroundColor: colors.surfaceHigh }]}
                 >
                   <NothingText variant="dot" size={11} color="red">
                     CLEAR
@@ -109,7 +124,7 @@ export const QueueModal: React.FC<QueueModalProps> = ({ visible, onClose }) => {
                 onPress={onClose}
                 style={styles.closeBtn}
               >
-                <Ionicons name="close" size={24} color={NothingColors.white} />
+                <Ionicons name="close" size={24} color={colors.white} />
               </TouchableOpacity>
             </View>
           </View>
@@ -143,11 +158,9 @@ const styles = StyleSheet.create({
   },
   sheetContainer: {
     height: "75%",
-    backgroundColor: NothingColors.surfaceLowest,
     borderTopLeftRadius: NothingLayout.radiusXl,
     borderTopRightRadius: NothingLayout.radiusXl,
     borderWidth: 1,
-    borderColor: NothingColors.borderSubtle,
     overflow: "hidden",
   },
   header: {
@@ -158,7 +171,6 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: NothingColors.borderSubtle,
   },
   headerActions: {
     flexDirection: "row",
@@ -169,7 +181,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: NothingLayout.radiusPill,
-    backgroundColor: NothingColors.surfaceHigh,
   },
   closeBtn: {
     padding: 4,
@@ -185,18 +196,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: NothingLayout.radiusMd,
     marginBottom: 6,
-    backgroundColor: NothingColors.surfaceLow,
   },
   activeItem: {
-    backgroundColor: NothingColors.surfaceMid,
     borderWidth: 1,
-    borderColor: NothingColors.borderActive,
   },
   itemArtwork: {
     width: 44,
     height: 44,
     borderRadius: 8,
-    backgroundColor: NothingColors.surfaceHigh,
   },
   itemInfo: {
     flex: 1,

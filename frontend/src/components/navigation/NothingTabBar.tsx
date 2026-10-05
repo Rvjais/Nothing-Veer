@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
   Animated,
   LayoutChangeEvent,
+  LayoutAnimation,
+  PanResponder,
+  StyleSheet,
+  TouchableOpacity,
+  UIManager,
+  View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -13,79 +16,164 @@ import { NothingLayout } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 import { useThemeStore } from "../../store/useThemeStore";
 
-export type TabName = "home" | "search" | "library" | "settings";
+export type TabName = "home" | "search" | "library" | "downloads" | "settings";
 
 export interface NothingTabBarProps {
   currentTab: TabName;
   onSelectTab: (tab: TabName) => void;
 }
 
-const TABS: { name: TabName; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+type TabDefinition = { name: TabName; label: string; icon: keyof typeof Ionicons.glyphMap };
+
+const INITIAL_TABS: TabDefinition[] = [
   { name: "home", label: "HOME", icon: "home-outline" },
   { name: "search", label: "SEARCH", icon: "search-outline" },
   { name: "library", label: "LIBRARY", icon: "library-outline" },
+  { name: "downloads", label: "DOWNLOADS", icon: "cloud-download-outline" },
   { name: "settings", label: "SETTINGS", icon: "settings-outline" },
 ];
 
-export const NothingTabBar: React.FC<NothingTabBarProps> = ({
-  currentTab,
-  onSelectTab,
-}) => {
+const ACTIVE_FLEX = 1.85;
+const HORIZONTAL_PADDING = 6;
+const DRAG_THRESHOLD = 10;
+
+if (UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSelectTab }) => {
   const { colors, isDark } = useThemeStore();
+  const [tabs, setTabs] = useState(INITIAL_TABS);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [, setDragRevision] = useState(0);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.name === currentTab));
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
 
-  const activeIndex = TABS.findIndex((t) => t.name === currentTab);
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const indicatorWidth = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const layoutByTabRef = useRef<Partial<Record<TabName, { center: number }>>>({});
+  const dragValuesRef = useRef<Record<TabName, { x: Animated.Value; scale: Animated.Value }>>({
+    home: { x: new Animated.Value(0), scale: new Animated.Value(1) },
+    search: { x: new Animated.Value(0), scale: new Animated.Value(1) },
+    library: { x: new Animated.Value(0), scale: new Animated.Value(1) },
+    downloads: { x: new Animated.Value(0), scale: new Animated.Value(1) },
+    settings: { x: new Animated.Value(0), scale: new Animated.Value(1) },
+  });
+  const startCenterRef = useRef(0);
+  const draggedTabRef = useRef<TabName | null>(null);
+  const dragDidMoveRef = useRef(false);
 
-  const paddingHorizontal = 6;
-  const availableWidth = containerWidth > 0 ? containerWidth - paddingHorizontal * 2 : 0;
-  const tabWidth = availableWidth > 0 ? availableWidth / TABS.length : 0;
+  const availableWidth = Math.max(0, containerWidth - HORIZONTAL_PADDING * 2);
+  const unitWidth = availableWidth / (tabs.length + ACTIVE_FLEX - 1);
+  const activeWidth = unitWidth * ACTIVE_FLEX;
 
   useEffect(() => {
-    if (tabWidth > 0) {
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: activeIndex * tabWidth,
-          useNativeDriver: true,
-          tension: 68,
-          friction: 8,
-        }),
-        Animated.sequence([
-          Animated.timing(scaleAnim, {
-            toValue: 0.95,
-            duration: 90,
-            useNativeDriver: true,
-          }),
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            friction: 5,
-            tension: 80,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start();
-    }
-  }, [activeIndex, tabWidth, slideAnim, scaleAnim]);
+    if (containerWidth <= 0) return;
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: activeIndex * unitWidth,
+        useNativeDriver: false,
+        tension: 68,
+        friction: 8,
+      }),
+      Animated.spring(indicatorWidth, {
+        toValue: activeWidth,
+        useNativeDriver: false,
+        tension: 78,
+        friction: 10,
+      }),
+      Animated.sequence([
+        Animated.timing(scaleAnim, { toValue: 0.94, duration: 85, useNativeDriver: false }),
+        Animated.spring(scaleAnim, { toValue: 1.04, friction: 5, tension: 150, useNativeDriver: false }),
+        Animated.spring(scaleAnim, { toValue: 1, friction: 7, tension: 130, useNativeDriver: false }),
+      ]),
+    ]).start();
+  }, [activeIndex, activeWidth, containerWidth, indicatorWidth, scaleAnim, slideAnim, unitWidth]);
 
   const handlePress = (tab: TabName) => {
+    if (dragDidMoveRef.current) return;
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
+    
+    // Using a minimal layout animation or removing it entirely to prevent screen-wide glitches
+    // and dev launcher crashes on fast switching.
+    LayoutAnimation.configureNext({
+      duration: 120,
+      update: { type: LayoutAnimation.Types.easeInEaseOut }
+    });
+    
     onSelectTab(tab);
   };
 
-  const onLayout = (e: LayoutChangeEvent) => {
-    const width = e.nativeEvent.layout.width;
+  const pillPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > DRAG_THRESHOLD && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onPanResponderGrant: () => {
+        dragDidMoveRef.current = true;
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+        Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: false }).start();
+      },
+      onPanResponderMove: (_, gesture) => {
+        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        let newX = activeIndexRef.current * nextUnitWidth + gesture.dx;
+        newX = Math.max(0, Math.min(newX, (tabs.length - 1) * nextUnitWidth));
+        slideAnim.setValue(newX);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        let newX = activeIndexRef.current * nextUnitWidth + gesture.dx;
+        newX = Math.max(0, Math.min(newX, (tabs.length - 1) * nextUnitWidth));
+        const nearestIndex = Math.round(newX / nextUnitWidth);
+        const nextTab = tabs[nearestIndex].name;
+        
+        if (nextTab !== tabs[activeIndexRef.current].name) {
+          try { Haptics.selectionAsync(); } catch {}
+          onSelectTab(nextTab);
+        } else {
+          // Snap back
+          Animated.spring(slideAnim, {
+            toValue: activeIndexRef.current * nextUnitWidth,
+            useNativeDriver: false,
+            tension: 68,
+            friction: 8,
+          }).start();
+        }
+        
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: false }).start();
+        setTimeout(() => { dragDidMoveRef.current = false; }, 120);
+      },
+      onPanResponderTerminate: () => {
+        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        Animated.spring(slideAnim, {
+          toValue: activeIndexRef.current * nextUnitWidth,
+          useNativeDriver: false,
+          tension: 68,
+          friction: 8,
+        }).start();
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: false }).start();
+        setTimeout(() => { dragDidMoveRef.current = false; }, 120);
+      }
+    })
+  ).current;
+
+  const onLayout = (event: LayoutChangeEvent) => {
+    const width = event.nativeEvent.layout.width;
     if (width > 0 && width !== containerWidth) {
       setContainerWidth(width);
-      slideAnim.setValue(activeIndex * ((width - paddingHorizontal * 2) / TABS.length));
+      const nextUnitWidth = (width - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+      slideAnim.setValue(activeIndexRef.current * nextUnitWidth);
+      indicatorWidth.setValue(nextUnitWidth * ACTIVE_FLEX);
     }
   };
 
   return (
     <View style={styles.container}>
-      {/* Outer Liquid Glass Capsule */}
       <View
         onLayout={onLayout}
         style={[
@@ -97,96 +185,78 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({
         ]}
       >
         <BlurView
+          pointerEvents="none"
           intensity={65}
           tint={isDark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Apple Fluid Sliding Pill Indicator */}
-        {tabWidth > 0 && (
+        {unitWidth > 0 && (
           <Animated.View
+            pointerEvents="none"
             style={[
               styles.slidingIndicator,
               {
-                width: tabWidth,
-                left: paddingHorizontal,
-                transform: [
-                  { translateX: slideAnim },
-                  { scale: scaleAnim },
-                ],
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.16)"
-                  : "rgba(0, 0, 0, 0.08)",
-                borderColor: isDark
-                  ? "rgba(255, 255, 255, 0.22)"
-                  : "rgba(0, 0, 0, 0.12)",
+                width: indicatorWidth,
+                left: HORIZONTAL_PADDING,
+                transform: [{ translateX: slideAnim }, { scale: scaleAnim }],
+                backgroundColor: isDark ? "rgba(255, 255, 255, 0.16)" : "rgba(0, 0, 0, 0.08)",
+                borderColor: isDark ? "rgba(255, 255, 255, 0.22)" : "rgba(0, 0, 0, 0.12)",
               },
             ]}
           >
-            {/* Subtle specular top highlight */}
             <View
               style={[
                 styles.specularHighlight,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255, 255, 255, 0.35)"
-                    : "rgba(255, 255, 255, 0.8)",
-                },
+                { backgroundColor: isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(255, 255, 255, 0.8)" },
               ]}
             />
           </Animated.View>
         )}
 
-        {/* Tab Buttons */}
-        <View style={styles.tabButtonsRow}>
-          {TABS.map((t) => {
-            const isActive = currentTab === t.name;
-            const iconName = isActive
-              ? (t.icon.replace("-outline", "") as any)
-              : t.icon;
+        <View style={styles.tabButtonsRow} {...pillPanResponder.panHandlers}>
+          {tabs.map((tab) => {
+            const isActive = currentTab === tab.name;
+            const iconName = isActive ? (tab.icon.replace("-outline", "") as keyof typeof Ionicons.glyphMap) : tab.icon;
+            const dragValues = dragValuesRef.current[tab.name];
 
             return (
-              <TouchableOpacity
-                key={t.name}
-                activeOpacity={0.7}
-                onPress={() => handlePress(t.name)}
-                style={styles.tabBtn}
+              <Animated.View
+                key={tab.name}
+                onLayout={(event) => {
+                  const { x, width } = event.nativeEvent.layout;
+                  layoutByTabRef.current[tab.name] = { center: x + width / 2 };
+                }}
+                style={{
+                  flex: isActive ? ACTIVE_FLEX : 1,
+                  height: "100%",
+                  transform: [{ translateX: dragValues.x }, { scale: dragValues.scale }],
+                  zIndex: draggedTabRef.current === tab.name ? 5 : 1,
+                }}
               >
-                <View style={styles.iconLabelGroup}>
-                  <Ionicons
-                    name={iconName}
-                    size={19}
-                    color={isActive ? (isDark ? "#FFFFFF" : "#000000") : colors.grey}
-                  />
-                  {isActive && (
-                    <NothingText
-                      variant="dot"
-                      size={10.5}
-                      color={isDark ? "white" : "white"}
-                      style={[
-                        styles.label,
-                        { color: isDark ? "#FFFFFF" : "#111111" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {t.label}
-                    </NothingText>
-                  )}
-                </View>
-
-                {/* Nothing OS Iconic Red Indicator */}
-                {isActive && (
-                  <View
-                    style={[
-                      styles.activeDot,
-                      {
-                        backgroundColor: colors.red,
-                        shadowColor: colors.red,
-                      },
-                    ]}
-                  />
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => handlePress(tab.name)}
+                  style={styles.tabBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${tab.label} tab${isActive ? ", selected" : ""}. Drag to reorder.`}
+                >
+                  <View style={styles.iconLabelGroup}>
+                    <Ionicons name={iconName} size={19} color={isActive ? colors.white : colors.grey} />
+                    {isActive && (
+                      <NothingText
+                        variant="dot"
+                        size={10}
+                        color="white"
+                        style={[styles.label, { color: colors.white }]}
+                        numberOfLines={1}
+                      >
+                        {tab.label}
+                      </NothingText>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              </Animated.View>
             );
           })}
         </View>
@@ -234,8 +304,7 @@ const styles = StyleSheet.create({
   tabButtonsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 6,
+    paddingHorizontal: HORIZONTAL_PADDING,
     height: "100%",
   },
   tabBtn: {
@@ -243,7 +312,6 @@ const styles = StyleSheet.create({
     height: "100%",
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
   iconLabelGroup: {
     flexDirection: "row",
@@ -252,17 +320,8 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   label: {
-    letterSpacing: 0.8,
-  },
-  activeDot: {
-    position: "absolute",
-    bottom: 4,
-    width: 4.5,
-    height: 4.5,
-    borderRadius: 2.25,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 4,
-    elevation: 3,
+    letterSpacing: 0.55,
   },
 });
+
+

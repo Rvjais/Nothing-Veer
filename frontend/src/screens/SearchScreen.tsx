@@ -94,7 +94,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     } catch (error) {
       Alert.alert(
         "Search failed",
-        error instanceof Error ? error.message : "Could not search YouTube Music."
+        error instanceof Error ? error.message : "Could not search Global Catalog."
       );
     } finally {
       setLoading(false);
@@ -135,11 +135,15 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         onPress={() => handleTrackPress(item)}
         style={[
           styles.trackRow,
-          { borderBottomColor: colors.borderSubtle },
+          {
+            backgroundColor: colors.surfaceLow,
+            borderColor: colors.borderSubtle,
+            borderBottomColor: colors.borderSubtle,
+          },
           isCurrent && { backgroundColor: isDark ? "rgba(215, 25, 33, 0.12)" : "rgba(215, 25, 33, 0.08)" },
         ]}
       >
-        <Image source={{ uri: item.artwork }} style={styles.trackThumb} />
+        <Image source={{ uri: item.artwork }} style={[styles.trackThumb, { backgroundColor: colors.surfaceHigh }]} />
 
         <View style={styles.trackDetails}>
           <NothingText
@@ -208,7 +212,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
             onPress={onBack}
             style={styles.backBtn}
           >
-            <Ionicons name="arrow-back" size={24} color={NothingColors.white} />
+            <Ionicons name="arrow-back" size={24} color={isDark ? "#FFFFFF" : "#111111"} />
           </TouchableOpacity>
         )}
         <View style={{ flex: 1 }}>
@@ -229,7 +233,12 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
       </View>
 
       {suggestions.length > 0 && !searched && (
-        <View style={styles.suggestionsContainer}>
+        <View
+          style={[
+            styles.suggestionsContainer,
+            { backgroundColor: colors.surfaceLowest, borderBottomColor: colors.borderSubtle },
+          ]}
+        >
           {suggestions.map((sug, idx) => (
             <TouchableOpacity
               key={idx}
@@ -240,7 +249,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
               <Ionicons
                 name="search-outline"
                 size={16}
-                color={NothingColors.grey}
+                color={colors.grey}
                 style={{ marginRight: 12 }}
               />
               <NothingText size={14} color="dim">
@@ -253,14 +262,14 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="small" color={NothingColors.red} />
+          <ActivityIndicator size="small" color={colors.red} />
           <NothingText
             variant="dot"
             size={12}
             color="grey"
             style={{ marginTop: 12 }}
           >
-            SEARCHING YOUTUBE MUSIC...
+            SEARCHING Global Catalog...
           </NothingText>
         </View>
       ) : searched ? (
@@ -285,7 +294,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
       ) : (
         <ScrollView
           style={styles.trendingContainer}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: 180 }}
         >
           <NothingText variant="dot" size={14} color="grey" style={styles.trendingTitle}>
             TRENDING SEARCHES
@@ -297,7 +306,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
                 key={index}
                 activeOpacity={0.75}
                 onPress={() => performSearch(keyword)}
-                style={styles.keywordTag}
+                style={[
+                  styles.keywordTag,
+                  { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
+                ]}
               >
                 <NothingText variant="bodyMedium" size={13} color="dim">
                   {keyword}
@@ -348,7 +360,7 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 120,
+    paddingBottom: 180,
   },
   trackRow: {
     flexDirection: "row",
@@ -402,3 +414,5 @@ const styles = StyleSheet.create({
     borderColor: NothingColors.borderSubtle,
   },
 });
+
+

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -10,18 +10,21 @@ import {
   Animated,
   PanResponder,
   Easing,
+  StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { NothingColors } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { VinylDisc } from "../components/player/VinylDisc";
 import { PlayerControls } from "../components/player/PlayerControls";
 import { LyricsOverlay } from "../components/player/LyricsOverlay";
 import { QueueModal } from "../components/player/QueueModal";
+import { PlaylistPickerModal } from "../components/player/PlaylistPickerModal";
+import { SongInfoModal } from "../components/player/SongInfoModal";
+import { useThemeStore } from "../store/useThemeStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -36,9 +39,13 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
 }) => {
   const [showLyrics, setShowLyrics] = useState(false);
   const [queueModalVisible, setQueueModalVisible] = useState(false);
+  const [playlistPickerVisible, setPlaylistPickerVisible] = useState(false);
+  const [songInfoVisible, setSongInfoVisible] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState("1x");
+  const { colors, isDark } = useThemeStore();
 
   const translateY = useRef(new Animated.Value(0)).current;
+  const timelineScrubPreviewRef = useRef<((seconds: number | null) => void) | null>(null);
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -56,6 +63,13 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const cycleRepeat = usePlayerStore((s) => s.cycleRepeat);
   const setVolume = usePlayerStore((s) => s.setVolume);
+
+  const registerTimelineScrubPreview = useCallback(
+    (handler: ((seconds: number | null) => void) | null) => {
+      timelineScrubPreviewRef.current = handler;
+    },
+    []
+  );
 
   const toggleFavorite = useLibraryStore((s) => s.toggleFavorite);
   const isFavorite = useLibraryStore((s) =>
@@ -84,7 +98,6 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
-      translateY.setValue(0);
       onClose();
     });
   };
@@ -165,27 +178,34 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
+      animationType="none"
+      presentationStyle="overFullScreen"
       onRequestClose={handleDismiss}
-      transparent={false}
+      transparent
+      statusBarTranslucent
     >
       <Animated.View
+        {...pullPanResponder.panHandlers}
         style={[
           styles.container,
+          { backgroundColor: colors.background },
           {
             transform: [{ translateY }],
           },
         ]}
       >
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
         <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
           {/* Pull-Down Drag Pill Handle */}
-          <View {...pullPanResponder.panHandlers} style={styles.dragHandleWrapper}>
-            <View style={styles.dragHandleBar} />
+          <View style={styles.dragHandleWrapper}>
+            <View style={[styles.dragHandleBar, { backgroundColor: colors.greyDark }]} />
           </View>
 
-          {/* Top Bar matching Nothing OS + Pull down support */}
-          <View {...pullPanResponder.panHandlers} style={styles.topBar}>
+          {/* Top bar actions stay taps; only the top handle starts pull-to-dismiss. */}
+          <View style={styles.topBar}>
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleDismiss}
@@ -194,7 +214,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name="chevron-down"
                 size={24}
-                color={NothingColors.white}
+                color={colors.white}
               />
             </TouchableOpacity>
 
@@ -203,7 +223,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
                 Playing from
               </NothingText>
               <NothingText variant="dot" size={11} color="white">
-                YouTube Music
+                Global Catalog
               </NothingText>
             </View>
 
@@ -213,15 +233,15 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               style={styles.iconBtn}
             >
               <Ionicons
-                name="ellipsis-vertical"
-                size={20}
-                color={NothingColors.white}
+                name="share-outline"
+                size={21}
+                color={colors.white}
               />
             </TouchableOpacity>
           </View>
 
           {/* Main Visual: Turntable Disc OR Synced Lyrics */}
-          <View {...pullPanResponder.panHandlers} style={styles.visualContainer}>
+          <View style={styles.visualContainer}>
             {showLyrics ? (
               <View style={styles.lyricsWrapper}>
                 <LyricsOverlay
@@ -243,8 +263,9 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
                 durationMillis={durationMillis}
                 speed={playbackSpeed}
                 onToggleSpeed={handleToggleSpeed}
-                onPress={() => setShowLyrics(true)}
+                onPress={() => setSongInfoVisible(true)}
                 onSeek={seekTo}
+                onScrubPreview={(seconds) => timelineScrubPreviewRef.current?.(seconds)}
               />
             )}
           </View>
@@ -264,14 +285,18 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name="albums-outline"
                 size={18}
-                color={NothingColors.whiteDim}
+                color={colors.whiteDim}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => setShowLyrics(!showLyrics)}
-              style={styles.titleCapsule}
+              onPress={() => setSongInfoVisible(true)}
+              style={[
+                styles.titleCapsule,
+                { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle },
+              ]}
+              accessibilityLabel="Show track details"
             >
               <NothingText
                 variant="dot"
@@ -297,8 +322,45 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
               <Ionicons
                 name={isFavorite ? "star" : "star-outline"}
                 size={20}
-                color={isFavorite ? NothingColors.red : NothingColors.whiteDim}
+                color={isFavorite ? colors.red : colors.whiteDim}
               />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.extraActionsRow}>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setPlaylistPickerVisible(true)}
+              style={[
+                styles.extraActionButton,
+                { backgroundColor: colors.glassBackground, borderColor: colors.glassBorder },
+              ]}
+            >
+              <Ionicons name="add-circle-outline" size={17} color={colors.whiteDim} />
+              <NothingText variant="dot" size={9} color="dim" numberOfLines={1}>
+                ADD TO PLAYLIST
+              </NothingText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setShowLyrics((current) => !current)}
+              style={[
+                styles.extraActionButton,
+                {
+                  backgroundColor: showLyrics ? colors.surfaceMid : colors.glassBackground,
+                  borderColor: showLyrics ? colors.borderActive : colors.glassBorder,
+                },
+              ]}
+            >
+              <Ionicons
+                name={showLyrics ? "disc-outline" : "musical-notes-outline"}
+                size={16}
+                color={showLyrics ? colors.red : colors.whiteDim}
+              />
+              <NothingText variant="dot" size={9} color={showLyrics ? "red" : "dim"}>
+                {showLyrics ? "HIDE LYRICS" : "LYRICS"}
+              </NothingText>
             </TouchableOpacity>
           </View>
 
@@ -313,14 +375,15 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
             onPrevious={playPrevious}
             onToggleShuffle={toggleShuffle}
             onCycleRepeat={cycleRepeat}
-            volume={volume}
-            onVolumeChange={(v) => setVolume(v)}
             onDownload={handleDownload}
             isDownloaded={isDownloaded}
             isDownloading={isDownloading}
             positionMillis={positionMillis}
             durationMillis={durationMillis}
             onSeek={seekTo}
+            onRegisterScrubPreview={registerTimelineScrubPreview}
+            volume={volume}
+            onVolumeChange={setVolume}
           />
         </SafeAreaView>
 
@@ -328,6 +391,16 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
         <QueueModal
           visible={queueModalVisible}
           onClose={() => setQueueModalVisible(false)}
+        />
+        <PlaylistPickerModal
+          visible={playlistPickerVisible}
+          track={currentTrack}
+          onClose={() => setPlaylistPickerVisible(false)}
+        />
+        <SongInfoModal
+          visible={songInfoVisible}
+          track={currentTrack}
+          onClose={() => setSongInfoVisible(false)}
         />
       </Animated.View>
     </Modal>
@@ -346,10 +419,9 @@ const styles = StyleSheet.create({
   },
   dragHandleWrapper: {
     width: "100%",
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 8,
-    paddingBottom: 4,
   },
   dragHandleBar: {
     width: 44,
@@ -393,7 +465,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 24,
-    marginVertical: 12,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  extraActionsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 30,
+    marginBottom: 4,
+  },
+  extraActionButton: {
+    flex: 1,
+    minHeight: 36,
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
   },
   actionCircleBtn: {
     width: 40,
@@ -418,3 +509,5 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
 });
+
+

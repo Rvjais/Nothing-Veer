@@ -353,7 +353,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
                 {DownloadManager.formatBytes(storageUsed)} STORED LOCALLY
               </NothingText>
             </View>
-            <NothingText variant="dot" color="red" size={14}>
+            <NothingText variant="dot" color="red" size={14} style={{ flexShrink: 1, textAlign: "right" }}>
               {downloadedTracks.length} SONGS
             </NothingText>
           </View>
@@ -457,7 +457,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
 
         <NothingCard style={styles.cardGroup} accent>
           <View style={styles.aboutRow}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 12 }}>
               <NothingText variant="bodyMedium" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
                 CREATOR & DEVELOPER
               </NothingText>
@@ -465,7 +465,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
                 DESIGN & ENGINEERING
               </NothingText>
             </View>
-            <NothingText variant="dot" color="red" size={14}>
+            <NothingText variant="dot" color="red" size={14} style={{ flexShrink: 1, textAlign: "right" }}>
               MADE BY RANVEER ❤️ ♫
             </NothingText>
           </View>
@@ -488,28 +488,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
 
           <View style={styles.aboutRow}>
             <NothingText variant="mono" color="dim" size={12}>VERSION</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>2.0.0 (SDK 54)</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>2.0.0 (SDK 54)</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
-            <NothingText variant="mono" color="dim" size={12}>UI ENGINE</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>NOTHING OS • LIQUID GLASS</NothingText>
+            <NothingText variant="mono" color="dim" size={12} style={{ flex: 1, paddingRight: 12 }}>UI ENGINE</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>NOTHING OS • LIQUID GLASS</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
-            <NothingText variant="mono" color="dim" size={12}>STREAM RESOLVER</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>INNERTUBE IOS (DIRECT)</NothingText>
+            <NothingText variant="mono" color="dim" size={12} style={{ flex: 1, paddingRight: 12 }}>STREAM RESOLVER</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>INNERTUBE IOS (DIRECT)</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
-            <NothingText variant="mono" color="dim" size={12}>LYRICS ENGINE</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>LRCLIB SYNCHRONIZED</NothingText>
+            <NothingText variant="mono" color="dim" size={12} style={{ flex: 1, paddingRight: 12 }}>LYRICS ENGINE</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>LRCLIB SYNCHRONIZED</NothingText>
           </View>
         </NothingCard>
       </View>
@@ -532,7 +532,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingTop: 12,
-    paddingBottom: 120,
+    paddingBottom: 180,
   },
   header: {
     flexDirection: "row",
@@ -608,3 +608,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
 });
+
+
+

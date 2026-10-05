@@ -19,6 +19,7 @@ import { useThemeStore } from "./src/store/useThemeStore";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { SearchScreen } from "./src/screens/SearchScreen";
 import { LibraryScreen } from "./src/screens/LibraryScreen";
+import { DownloadsScreen } from "./src/screens/DownloadsScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { NowPlayingScreen } from "./src/screens/NowPlayingScreen";
 
@@ -26,7 +27,7 @@ import { MiniPlayer } from "./src/components/player/MiniPlayer";
 import { NothingTabBar, TabName } from "./src/components/navigation/NothingTabBar";
 import { NothingText } from "./src/components/common/NothingText";
 
-const TABS: TabName[] = ["home", "search", "library", "settings"];
+const TABS: TabName[] = ["home", "search", "library", "downloads", "settings"];
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<TabName>("home");
@@ -109,12 +110,12 @@ export default function App() {
   // Nothing OS Bootup Screen
   if (!fontsLoaded || booting) {
     return (
-      <View style={styles.bootContainer}>
-        <StatusBar style="light" />
+      <View style={[styles.bootContainer, { backgroundColor: colors.background }]}>
+        <StatusBar style={isDark ? "light" : "dark"} />
         <View style={styles.bootCenter}>
           <View style={styles.bootGlyphBox}>
             <View style={styles.bootRedDot} />
-            <NothingText variant="dot" size={32} color="white">
+            <NothingText variant="dot" size={32} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
               (NOTHING)
             </NothingText>
           </View>
@@ -184,6 +185,17 @@ export default function App() {
           <View
             style={[
               styles.tabContentWrapper,
+              { display: currentTab === "downloads" ? "flex" : "none" },
+            ]}
+          >
+            <DownloadsScreen
+              onOpenNowPlaying={() => setNowPlayingOpen(true)}
+            />
+          </View>
+
+          <View
+            style={[
+              styles.tabContentWrapper,
               { display: currentTab === "settings" ? "flex" : "none" },
             ]}
           >
@@ -193,16 +205,16 @@ export default function App() {
           </View>
         </View>
 
-        {/* Bottom Floating MiniPlayer */}
-        {currentTrack && (
-          <MiniPlayer onPress={() => setNowPlayingOpen(true)} />
-        )}
-
-        {/* Bottom Liquid Glass Apple-Style Tab Bar */}
-        <NothingTabBar
-          currentTab={currentTab}
-          onSelectTab={setCurrentTab}
-        />
+        {/* Floating Bottom UI (MiniPlayer + TabBar) */}
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
+          {currentTrack && (
+            <MiniPlayer onPress={() => setNowPlayingOpen(true)} />
+          )}
+          <NothingTabBar
+            currentTab={currentTab}
+            onSelectTab={setCurrentTab}
+          />
+        </View>
 
         {/* Fullscreen Now Playing Modal with Turntable Player and Synced Lyrics */}
         <NowPlayingScreen
@@ -265,3 +277,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

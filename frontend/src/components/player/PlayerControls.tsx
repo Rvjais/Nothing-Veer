@@ -1,15 +1,18 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Animated,
+  PanResponder,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
+  View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { NothingColors } from "../../constants/theme";
-import { NothingText } from "../common/NothingText";
+import { NothingLayout } from "../../constants/theme";
+import { useThemeStore } from "../../store/useThemeStore";
 import { RepeatMode } from "../../store/usePlayerStore";
+import { NothingText } from "../common/NothingText";
 
 export interface PlayerControlsProps {
   isPlaying: boolean;
@@ -21,14 +24,15 @@ export interface PlayerControlsProps {
   onPrevious: () => void;
   onToggleShuffle: () => void;
   onCycleRepeat: () => void;
-  volume?: number;
-  onVolumeChange?: (vol: number) => void;
   onDownload?: () => void;
   isDownloaded?: boolean;
   isDownloading?: boolean;
   positionMillis?: number;
   durationMillis?: number;
   onSeek?: (seconds: number) => void;
+  volume?: number;
+  onVolumeChange?: (volume: number) => void;
+  onRegisterScrubPreview?: (handler: ((seconds: number | null) => void) | null) => void;
 }
 
 function formatTime(millis?: number): string {
@@ -49,16 +53,56 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   onPrevious,
   onToggleShuffle,
   onCycleRepeat,
-  volume = 0.8,
-  onVolumeChange,
   onDownload,
   isDownloaded = false,
   isDownloading = false,
   positionMillis = 0,
   durationMillis = 180000,
   onSeek,
+  volume = 1,
+  onVolumeChange,
+  onRegisterScrubPreview,
 }) => {
-  const [timelineWidth, setTimelineWidth] = useState(260);
+  const { colors, isDark } = useThemeStore();
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPositionMillis, setScrubPositionMillis] = useState(positionMillis);
+  const [vinylPreviewMillis, setVinylPreviewMillis] = useState<number | null>(null);
+  const timelineWidthRef = useRef(1);
+  const timelineLeftRef = useRef(0);
+  const timelineRef = useRef<View>(null);
+  const latestValuesRef = useRef({ durationMillis, onSeek });
+  latestValuesRef.current = { durationMillis, onSeek };
+  const volumeChangeRef = useRef(onVolumeChange);
+  volumeChangeRef.current = onVolumeChange;
+  const thumbScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const updateVinylPreview = (seconds: number | null) => {
+      setVinylPreviewMillis(seconds === null ? null : seconds * 1000);
+    };
+    onRegisterScrubPreview?.(updateVinylPreview);
+    return () => onRegisterScrubPreview?.(null);
+  }, [onRegisterScrubPreview]);
+
+  const isThumbActive = isScrubbing || vinylPreviewMillis !== null;
+  useEffect(() => {
+    if (!isThumbActive) {
+      Animated.spring(thumbScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 180,
+        friction: 9,
+      }).start();
+      return;
+    }
+
+    Animated.spring(thumbScale, {
+      toValue: 1.15,
+      useNativeDriver: true,
+      tension: 180,
+      friction: 6,
+    }).start();
+  }, [isThumbActive, thumbScale]);
 
   const handlePress = (callback: () => void) => {
     try {
@@ -67,49 +111,87 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
     callback();
   };
 
+  const updateScrubPosition = (touchX: number) => {
+    const { durationMillis: latestDuration } = latestValuesRef.current;
+    const ratio = Math.max(0, Math.min(1, touchX / timelineWidthRef.current));
+    const nextPosition = ratio * Math.max(0, latestDuration);
+    setScrubPositionMillis(nextPosition);
+    return nextPosition;
+  };
+
+  const timelinePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_event, gestureState) => {
+        setIsScrubbing(true);
+        updateScrubPosition(gestureState.x0 - timelineLeftRef.current);
+      },
+      onPanResponderMove: (_event, gestureState) => {
+        updateScrubPosition(gestureState.moveX - timelineLeftRef.current);
+      },
+      onPanResponderRelease: (_event, gestureState) => {
+        const nextPosition = updateScrubPosition(gestureState.moveX - timelineLeftRef.current);
+        const { onSeek: seek } = latestValuesRef.current;
+        if (seek) {
+          try {
+            Haptics.selectionAsync();
+          } catch {}
+          seek(nextPosition / 1000);
+        }
+        setIsScrubbing(false);
+      },
+      onPanResponderTerminate: () => {
+        setIsScrubbing(false);
+      },
+    })
+  ).current;
+
+const visiblePosition = isScrubbing
+    ? scrubPositionMillis
+    : vinylPreviewMillis ?? positionMillis;
   const progressPercent =
     durationMillis > 0
-      ? Math.min(100, Math.max(0, (positionMillis / durationMillis) * 100))
+      ? Math.min(100, Math.max(0, (visiblePosition / durationMillis) * 100))
       : 0;
-
-  const handleTimelineScrub = (locationX: number) => {
-    if (timelineWidth > 0 && durationMillis > 0 && onSeek) {
-      const ratio = Math.max(0, Math.min(1, locationX / timelineWidth));
-      try {
-        Haptics.selectionAsync();
-      } catch {}
-      onSeek(ratio * (durationMillis / 1000));
-    }
-  };
+  const playButtonBackground = isDark ? "#FFFFFF" : "#111111";
+  const playButtonForeground = isDark ? "#000000" : "#FFFFFF";
 
   return (
     <View style={styles.container}>
-      {/* 1. Main Transport Controls */}
       <View style={styles.transportRow}>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => handlePress(onPrevious)}
-          style={styles.circleBtn}
+          style={[
+            styles.circleBtn,
+            {
+              backgroundColor: colors.surfaceLowest,
+              borderColor: colors.borderSubtle,
+            },
+          ]}
         >
-          <Ionicons
-            name="play-skip-back"
-            size={22}
-            color={NothingColors.white}
-          />
+          <Ionicons name="play-skip-back" size={22} color={colors.white} />
         </TouchableOpacity>
 
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => handlePress(onPlayPause)}
-          style={styles.playPillBtn}
+          style={[
+            styles.playPillBtn,
+            {
+              backgroundColor: playButtonBackground,
+              shadowColor: playButtonBackground,
+            },
+          ]}
         >
           {isBuffering ? (
-            <ActivityIndicator size="small" color="#000000" />
+            <ActivityIndicator size="small" color={playButtonForeground} />
           ) : (
             <Ionicons
               name={isPlaying ? "pause" : "play"}
               size={28}
-              color="#000000"
+              color={playButtonForeground}
               style={!isPlaying ? { marginLeft: 3 } : null}
             />
           )}
@@ -118,34 +200,43 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => handlePress(onNext)}
-          style={styles.circleBtn}
+          style={[
+            styles.circleBtn,
+            {
+              backgroundColor: colors.surfaceLowest,
+              borderColor: colors.borderSubtle,
+            },
+          ]}
         >
-          <Ionicons
-            name="play-skip-forward"
-            size={22}
-            color={NothingColors.white}
-          />
+          <Ionicons name="play-skip-forward" size={22} color={colors.white} />
         </TouchableOpacity>
       </View>
 
-      {/* 2. Nothing OS Dotted Timeline Scrubber */}
       <View style={styles.timelineWrapper}>
         <View style={styles.timeRow}>
           <NothingText variant="dot" size={11} color="dim">
-            {formatTime(positionMillis)}
+            {formatTime(visiblePosition)}
           </NothingText>
           <NothingText variant="dot" size={11} color="dim">
             {formatTime(durationMillis)}
           </NothingText>
         </View>
 
-        <TouchableOpacity
-          activeOpacity={1}
+        <View
+          ref={timelineRef}
+          {...timelinePanResponder.panHandlers}
           style={styles.timelineTouchArea}
-          onLayout={(e) => setTimelineWidth(e.nativeEvent.layout.width)}
-          onPress={(e) => handleTimelineScrub(e.nativeEvent.locationX)}
+          onLayout={(event) => {
+            const width = event.nativeEvent.layout.width || 1;
+            timelineWidthRef.current = width;
+            timelineRef.current?.measureInWindow((x) => {
+              timelineLeftRef.current = x;
+            });
+          }}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Playback position"
+          accessibilityValue={{ min: 0, max: 100, now: Math.round(progressPercent) }}
         >
-          {/* Authentic Nothing OS Dotted Track */}
           <View style={styles.dottedTrackRow}>
             {Array.from({ length: 32 }).map((_, index) => {
               const dotProgress = (index / 31) * 100;
@@ -155,76 +246,49 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
                   key={index}
                   style={[
                     styles.timelineDot,
-                    isFilled && styles.timelineDotActive,
+                    { backgroundColor: isFilled ? colors.whiteDim : colors.greySubtle },
                   ]}
                 />
               );
             })}
           </View>
 
-          {/* Dotted Slider Active Progress Line & Glowing Red LED Indicator */}
-          <View
+          <Animated.View
+            pointerEvents="none"
             style={[
               styles.timelineThumb,
-              { left: `${progressPercent}%` },
+              {
+                left: `${progressPercent}%`,
+                backgroundColor: colors.glassBackground,
+                borderColor: colors.glassBorder,
+                transform: [{ scale: thumbScale }],
+              },
             ]}
           >
-            <View style={styles.thumbLed} />
-          </View>
-        </TouchableOpacity>
+            <View
+              style={[
+                styles.thumbGloss,
+                { backgroundColor: isDark ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.82)" },
+              ]}
+            />
+          </Animated.View>
+        </View>
       </View>
 
-      {/* 3. Volume Slider Row with Nothing Red Scrubber */}
-      <View style={styles.volumeRow}>
-        <Ionicons
-          name="volume-mute-outline"
-          size={15}
-          color={NothingColors.grey}
-        />
-        <TouchableOpacity
-          activeOpacity={1}
-          style={styles.volumeTrack}
-          onPress={(e) => {
-            const { locationX } = e.nativeEvent;
-            const newVol = Math.max(0, Math.min(1, locationX / 190));
-            onVolumeChange?.(newVol);
-          }}
-        >
-          <View
-            style={[
-              styles.volumeFill,
-              { width: `${Math.round(volume * 100)}%` },
-            ]}
-          />
-          <View
-            style={[
-              styles.volumeThumb,
-              { left: `${Math.round(volume * 100)}%` },
-            ]}
-          />
-        </TouchableOpacity>
-        <Ionicons
-          name="volume-high-outline"
-          size={15}
-          color={NothingColors.grey}
-        />
-      </View>
-
-      {/* 4. Bottom Action Bar: Shuffle, Offline Download, Repeat */}
       <View style={styles.bottomBarRow}>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => handlePress(onToggleShuffle)}
           style={styles.bottomIconBtn}
+          accessibilityLabel={shuffle ? "Turn shuffle off" : "Turn shuffle on"}
         >
           <Ionicons
             name="shuffle-outline"
             size={20}
-            color={shuffle ? NothingColors.red : NothingColors.whiteDim}
+            color={shuffle ? colors.red : colors.whiteDim}
           />
         </TouchableOpacity>
 
-        {/* Offline Download Action */}
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => {
@@ -232,14 +296,15 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           }}
           style={styles.bottomIconBtn}
           disabled={isDownloading}
+          accessibilityLabel={isDownloaded ? "Track downloaded" : "Download track"}
         >
           {isDownloading ? (
-            <ActivityIndicator size="small" color={NothingColors.red} />
+            <ActivityIndicator size="small" color={colors.red} />
           ) : (
             <Ionicons
               name={isDownloaded ? "cloud-done" : "download-outline"}
               size={21}
-              color={isDownloaded ? NothingColors.red : NothingColors.whiteDim}
+              color={isDownloaded ? colors.red : colors.whiteDim}
             />
           )}
         </TouchableOpacity>
@@ -248,19 +313,21 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           activeOpacity={0.7}
           onPress={() => handlePress(onCycleRepeat)}
           style={styles.bottomIconBtn}
+          accessibilityLabel={`Repeat ${repeatMode}`}
         >
           <Ionicons
             name={repeatMode === "one" ? "repeat" : "repeat-outline"}
             size={20}
-            color={repeatMode !== "off" ? NothingColors.red : NothingColors.whiteDim}
+            color={repeatMode !== "off" ? colors.red : colors.whiteDim}
           />
           {repeatMode === "one" && (
-            <View style={styles.repeatBadge}>
-              <Ionicons name="ellipse" size={4} color={NothingColors.red} />
+            <View style={[styles.repeatBadge, { backgroundColor: colors.background }]}>
+              <Ionicons name="ellipse" size={4} color={colors.red} />
             </View>
           )}
         </TouchableOpacity>
-      </View>
+
+        </View>
     </View>
   );
 };
@@ -282,9 +349,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: NothingColors.surfaceLowest,
     borderWidth: 1,
-    borderColor: NothingColors.borderSubtle,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -292,18 +357,16 @@ const styles = StyleSheet.create({
     width: 156,
     height: 60,
     borderRadius: 30,
-    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#FFFFFF",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.22,
     shadowRadius: 10,
     elevation: 8,
   },
   timelineWrapper: {
     width: "78%",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   timeRow: {
     flexDirection: "row",
@@ -312,9 +375,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   timelineTouchArea: {
-    height: 24,
+    height: 28,
     justifyContent: "center",
     position: "relative",
+    paddingHorizontal: 1,
   },
   dottedTrackRow: {
     flexDirection: "row",
@@ -326,62 +390,32 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#2C2C2E",
-  },
-  timelineDotActive: {
-    backgroundColor: NothingColors.white,
   },
   timelineThumb: {
     position: "absolute",
-    marginLeft: -6,
-    top: 6,
-    width: 12,
+    marginLeft: -13,
+    top: 8,
+    width: 26,
     height: 12,
-    borderRadius: 6,
-    backgroundColor: "transparent",
+    borderRadius: NothingLayout.radiusPill,
+    borderWidth: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: 1,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  thumbLed: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: NothingColors.red,
-    shadowColor: NothingColors.red,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 5,
-    elevation: 4,
-  },
-  volumeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    marginBottom: 6,
-  },
-  volumeTrack: {
-    width: 190,
-    height: 18,
-    justifyContent: "center",
-    position: "relative",
-  },
-  volumeFill: {
+  thumbGloss: {
+    width: "68%",
     height: 2,
-    backgroundColor: NothingColors.red,
     borderRadius: 1,
   },
-  volumeThumb: {
-    position: "absolute",
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: NothingColors.red,
-    marginLeft: -4,
-    top: 5,
-  },
   bottomBarRow: {
-    width: "65%",
+    width: "78%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -391,9 +425,64 @@ const styles = StyleSheet.create({
     padding: 8,
     position: "relative",
   },
+  volumeControl: {
+    position: "relative",
+    zIndex: 10,
+  },
+  volumePopover: {
+    position: "absolute",
+    bottom: 42,
+    right: -10,
+    width: 42,
+    minHeight: 180,
+    borderRadius: NothingLayout.radiusPill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 12,
+    paddingBottom: 10,
+    zIndex: 20,
+    elevation: 12,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  volumeRail: {
+    width: 14,
+    height: 120,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    overflow: "visible",
+  },
+  volumeFill: {
+    position: "absolute",
+    bottom: 0,
+    width: 2,
+    borderRadius: 1,
+  },
+  volumeThumb: {
+    position: "absolute",
+    width: 12,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: -2,
+    borderWidth: 0,
+  },
+  muteButton: {
+    width: 28,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   repeatBadge: {
     position: "absolute",
     top: 5,
     right: 5,
   },
 });
+
+
+
+

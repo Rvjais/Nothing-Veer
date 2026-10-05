@@ -8,8 +8,9 @@ import {
 } from "react-native";
 import { LyricsService } from "../../services/lyrics";
 import { LyricsData } from "../../types/music";
-import { NothingColors, NothingFonts } from "../../constants/theme";
+import { NothingFonts } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
+import { useThemeStore } from "../../store/useThemeStore";
 
 export interface LyricsOverlayProps {
   title: string;
@@ -27,6 +28,7 @@ export const LyricsOverlay: React.FC<LyricsOverlayProps> = ({
   positionMillis,
   onSeek,
 }) => {
+  const colors = useThemeStore((state) => state.colors);
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
@@ -65,7 +67,7 @@ export const LyricsOverlay: React.FC<LyricsOverlayProps> = ({
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="small" color={NothingColors.red} />
+        <ActivityIndicator size="small" color={colors.red} />
         <NothingText
           variant="dot"
           size={12}
@@ -150,8 +152,6 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   activeLineText: {
-    color: NothingColors.white,
     fontFamily: NothingFonts.headline,
   },
 });
-
