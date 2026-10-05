@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../../services/haptics";
 import { NothingLayout } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { RepeatMode } from "../../store/usePlayerStore";

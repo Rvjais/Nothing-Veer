@@ -9,7 +9,10 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "./src/services/haptics";
+import { Image } from "react-native";
+import { DownloadManager } from "./src/services/downloadManager";
+import appConfig from "./app.json";
 
 import { NothingColors, NothingFonts } from "./src/constants/theme";
 import { useLibraryStore } from "./src/store/useLibraryStore";
@@ -26,6 +29,11 @@ import { NowPlayingScreen } from "./src/screens/NowPlayingScreen";
 import { MiniPlayer } from "./src/components/player/MiniPlayer";
 import { NothingTabBar, TabName } from "./src/components/navigation/NothingTabBar";
 import { NothingText } from "./src/components/common/NothingText";
+import { YouTubeWelcome } from "./src/components/auth/YouTubeWelcome";
+import { YouTubeAccessPrompt } from "./src/components/auth/YouTubeAccessPrompt";
+import { YouTubeAuthModal } from "./src/components/auth/YouTubeAuthModal";
+import { useAuthStore } from "./src/store/useAuthStore";
+import { useCacheStore } from "./src/store/useCacheStore";
 
 const TABS: TabName[] = ["home", "search", "library", "downloads", "settings"];
 
@@ -33,6 +41,13 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<TabName>("home");
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [booting, setBooting] = useState(true);
+  const [skippedWelcome, setSkippedWelcome] = useState(false);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [authReady, setAuthReady] = useState(useAuthStore.persist.hasHydrated());
+  const youtubeCookie = useAuthStore(state => state.youtubeCookie);
+  const signInReason = useAuthStore(state => state.signInReason);
+  const dismissSignIn = useAuthStore(state => state.dismissSignIn);
+  const retryAfterSignIn = useRef(false);
 
   const currentTabRef = useRef<TabName>(currentTab);
   useEffect(() => {
@@ -68,7 +83,7 @@ export default function App() {
   ).current;
 
   // Load Nothing OS custom fonts
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     "Geist-Medium": require("./assets/fonts/Geist-Medium.ttf"),
     "Geist-Regular": require("./assets/fonts/Geist-Regular.ttf"),
     "GeistMono-Medium": require("./assets/fonts/GeistMono-Medium.ttf"),
@@ -80,16 +95,23 @@ export default function App() {
 
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const initPlayer = usePlayerStore((s) => s.initPlayer);
   const playbackError = usePlayerStore((s) => s.playbackError);
   const clearPlaybackError = usePlayerStore((s) => s.clearPlaybackError);
   const { initTheme, colors, isDark } = useThemeStore();
 
   useEffect(() => {
+    const unsubscribe = useAuthStore.persist.onFinishHydration(() => setAuthReady(true));
+    if (!useAuthStore.persist.hasHydrated()) void Promise.resolve(useAuthStore.persist.rehydrate()).catch(() => {}).then(() => setAuthReady(true));
+    else setAuthReady(true);
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     initTheme();
     loadLibrary();
-    void initPlayer().catch(() => {});
-  }, [initTheme, loadLibrary, initPlayer]);
+    void useCacheStore.getState().load();
+    void DownloadManager.clearTemporaryFiles().catch(() => {});
+  }, [initTheme, loadLibrary]);
 
   useEffect(() => {
     if (!playbackError) return;
@@ -99,26 +121,30 @@ export default function App() {
   }, [playbackError, clearPlaybackError]);
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded || fontError) {
       const timer = setTimeout(() => {
         setBooting(false);
       }, 1600);
       return () => clearTimeout(timer);
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, fontError]);
 
   // Nothing OS Bootup Screen
-  if (!fontsLoaded || booting) {
+  if ((!fontsLoaded && !fontError) || booting || !authReady) {
     return (
       <View style={[styles.bootContainer, { backgroundColor: colors.background }]}>
         <StatusBar style={isDark ? "light" : "dark"} />
         <View style={styles.bootCenter}>
           <View style={styles.bootGlyphBox}>
-            <View style={styles.bootRedDot} />
-            <NothingText variant="dot" size={32} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-              (NOTHING)
-            </NothingText>
+            <Image
+              source={require("./assets/VeerMusicLogo.png")}
+              style={{ width: 64, height: 64, marginBottom: 16 }}
+              resizeMode="contain"
+            />
           </View>
+          <NothingText variant="dot" size={32} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
+            VEER MUSIC
+          </NothingText>
           <NothingText variant="mono" size={12} color="dim" style={styles.bootSub}>
             AUDIO OS • ONLINE STREAM
           </NothingText>
@@ -130,12 +156,30 @@ export default function App() {
             MADE BY RANVEER ❤️ ♫
           </NothingText>
           <NothingText variant="mono" size={10} color="muted" style={{ marginTop: 6, letterSpacing: 1.5 }}>
-            INITIALIZING • v2.0.0
+            INITIALIZING • v{appConfig.expo.version}
           </NothingText>
         </View>
       </View>
     );
   }
+
+  const closeAuth = () => {
+    setAuthModalVisible(false);
+    const auth = useAuthStore.getState();
+    if (retryAfterSignIn.current && auth.youtubeCookie && !auth.signInReason) {
+      const player = usePlayerStore.getState();
+      if (player.currentTrack) void player.playTrack(player.currentTrack);
+    }
+    retryAfterSignIn.current = false;
+  };
+
+  if (!youtubeCookie && !skippedWelcome) return <SafeAreaProvider>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <YouTubeWelcome onConnect={() => setAuthModalVisible(true)} onSkip={() => { setSkippedWelcome(true); void Haptics.selectionAsync(); }} />
+      <YouTubeAuthModal visible={authModalVisible} onClose={closeAuth} />
+    </SafeAreaView>
+  </SafeAreaProvider>;
 
   return (
     <SafeAreaProvider>
@@ -156,6 +200,8 @@ export default function App() {
             <HomeScreen
               onOpenSearch={() => setCurrentTab("search")}
               onOpenNowPlaying={() => setNowPlayingOpen(true)}
+              onOpenDownloads={() => setCurrentTab("downloads")}
+              onConnectYouTube={() => setAuthModalVisible(true)}
             />
           </View>
 
@@ -218,9 +264,14 @@ export default function App() {
 
         {/* Fullscreen Now Playing Modal with Turntable Player and Synced Lyrics */}
         <NowPlayingScreen
-          visible={nowPlayingOpen}
+          visible={nowPlayingOpen && !signInReason && !authModalVisible}
           onClose={() => setNowPlayingOpen(false)}
         />
+        <YouTubeAccessPrompt visible={!!signInReason && !authModalVisible} signedIn={!!youtubeCookie}
+          onConnect={() => { retryAfterSignIn.current = true; setAuthModalVisible(true); }}
+          onOffline={() => { dismissSignIn(); setNowPlayingOpen(false); setCurrentTab("downloads"); }}
+          onClose={dismissSignIn} />
+        <YouTubeAuthModal visible={authModalVisible} onClose={closeAuth} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

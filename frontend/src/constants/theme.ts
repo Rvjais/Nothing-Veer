@@ -34,16 +34,16 @@ export interface ThemeColors {
 export const DarkColors: ThemeColors = {
   // Pure AMOLED Black
   background: "#000000",
-  surfaceLowest: "#0A0A0A",
-  surfaceLow: "#141414",
-  surfaceMid: "#1E1E1E",
-  surfaceHigh: "#2A2A2A",
-  surfaceHighest: "#383838",
+  surfaceLowest: "#0C0C0F",
+  surfaceLow: "#161619",
+  surfaceMid: "#222226",
+  surfaceHigh: "#2E2E34",
+  surfaceHighest: "#3C3C44",
 
   // Text & Content
   white: "#FFFFFF",
   whiteDim: "#D0D0D0",
-  grey: "#8E8E93",
+  grey: "#9999A3",
   greyDark: "#48484A",
   greySubtle: "#2C2C2E",
 
@@ -54,7 +54,7 @@ export const DarkColors: ThemeColors = {
   redLight: "#FF3B30",
 
   // Borders & Dividers
-  borderSubtle: "#222222",
+  borderSubtle: "#26262C",
   borderLight: "#333333",
   borderActive: "#555555",
 

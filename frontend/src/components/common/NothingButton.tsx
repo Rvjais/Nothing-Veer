@@ -6,7 +6,7 @@ import {
   StyleProp,
   ActivityIndicator,
 } from "react-native";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../../services/haptics";
 import { NothingColors, NothingLayout } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { NothingText } from "./NothingText";

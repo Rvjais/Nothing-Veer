@@ -19,17 +19,25 @@ import { NothingColors, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingCard } from "../components/common/NothingCard";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
+import { ScreenHeader } from "../components/common/ScreenHeader";
+import { LinearGradient } from "expo-linear-gradient";
+import { useCacheStore } from "../store/useCacheStore";
+import { useAuthStore } from "../store/useAuthStore";
 
 
 
 export interface HomeScreenProps {
   onOpenSearch: () => void;
   onOpenNowPlaying: () => void;
+  onOpenDownloads: () => void;
+  onConnectYouTube: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenSearch,
   onOpenNowPlaying,
+  onOpenDownloads,
+  onConnectYouTube,
 }) => {
   const [sections, setSections] = useState<HomeFeedSection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +49,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const playTrack = usePlayerStore((s) => s.playTrack);
   const recents = useLibraryStore((s) => s.recents);
+  const downloadedTracks = useLibraryStore(state => state.downloadedTracks);
+  const cachedTracks = useCacheStore(state => state.tracks);
+  const youtubeCookie = useAuthStore(state => state.youtubeCookie);
   const { colors, isDark } = useThemeStore();
 
   const fetchFeed = async () => {
@@ -116,30 +127,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Top Header */}
-      <View style={styles.header}>
-        <View>
-          <View style={styles.logoRow}>
-            <NothingText variant="dot" size={20} color="white" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-              NOTHING
-            </NothingText>
-            <View style={[styles.redDot, { backgroundColor: colors.red }]} />
-            <NothingText variant="dot" size={20} color="dim">
-              MUSIC
-            </NothingText>
-          </View>
-          <NothingText variant="mono" size={11} color="grey" style={{ marginTop: 2, color: colors.grey }}>
-            {getGreeting()} (•‿•)
-          </NothingText>
-        </View>
-
+      <ScreenHeader eyebrow="VEER MUSIC" title="A sound for every day." subtitle={getGreeting().toLowerCase().replace(/^./, value => value.toUpperCase()) + ". Find something that feels like you."} action={
         <TouchableOpacity
+          accessibilityLabel="Search music"
           activeOpacity={0.7}
           onPress={onOpenSearch}
           style={[styles.searchBtn, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }]}
         >
           <Ionicons name="search" size={20} color={isDark ? "#FFFFFF" : "#111111"} />
         </TouchableOpacity>
-      </View>
+      } />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -191,21 +188,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </View>
           </NothingCard>
         ) : (
-          <NothingCard style={styles.heroBanner}>
+          <NothingCard style={[styles.heroBanner, { padding: 0, overflow: "hidden" }]} onPress={onOpenSearch}>
+            <LinearGradient colors={[colors.surfaceHigh, colors.surfaceLowest]} style={{ padding: 24 }}>
             <View style={styles.heroContent}>
-              <View>
-                <NothingText variant="dot" size={12} color="red">
-                  STREAM ONLINE
+              <View style={{ flex: 1 }}>
+                <NothingText variant="mono" size={10} color="red">
+                  TURN THE WORLD DOWN
                 </NothingText>
                 <NothingText
                   variant="headline"
-                  size={18}
-                  style={{ marginTop: 4 }}
+                  size={30}
+                  style={{ marginTop: 12, letterSpacing: -0.6, lineHeight: 34 }}
                 >
-                  STREAMING ENGINE
+                  Press play.{"\n"}Make it yours.
                 </NothingText>
-                <NothingText size={12} color="grey" style={{ marginTop: 2 }}>
-                  Millions of tracks • Synced lyrics • High bitrate
+                <NothingText size={12} color="grey" style={{ marginTop: 12, lineHeight: 19 }}>
+                  Find a favorite. Discover a new one.
                 </NothingText>
               </View>
               <TouchableOpacity
@@ -216,8 +214,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <Ionicons name="arrow-forward" size={18} color={colors.white} />
               </TouchableOpacity>
             </View>
+            </LinearGradient>
           </NothingCard>
         )}
+        <View style={{ flexDirection: "row", paddingHorizontal: 20, gap: 10, marginBottom: 4 }}>
+          <TouchableOpacity onPress={onOpenDownloads} style={[styles.quickAction, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }]}>
+            <Ionicons name="cloud-done-outline" size={20} color={colors.red} /><View style={{ flex: 1 }}><NothingText variant="bodyMedium" size={12}>Saved music</NothingText><NothingText size={10} color="grey" style={{ marginTop: 4 }}>{new Set([...downloadedTracks, ...cachedTracks].map(track => track.id)).size} songs offline</NothingText></View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onConnectYouTube} style={[styles.quickAction, { backgroundColor: colors.surfaceLow, borderColor: colors.borderSubtle }]}>
+            <Ionicons name="logo-youtube" size={20} color={colors.red} /><View style={{ flex: 1 }}><NothingText variant="bodyMedium" size={12}>{youtubeCookie ? "YouTube" : "Connect YouTube"}</NothingText><NothingText size={10} color="grey" style={{ marginTop: 4 }}>{youtubeCookie ? "Session connected" : "Sign in anytime"}</NothingText></View>
+          </TouchableOpacity>
+        </View>
 
         {/* Recently Played if any */}
         {recents.length > 0  && (
@@ -356,6 +363,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  quickAction: { flex: 1, borderWidth: 1, borderRadius: 20, padding: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   container: {
     flex: 1,
     backgroundColor: NothingColors.background,

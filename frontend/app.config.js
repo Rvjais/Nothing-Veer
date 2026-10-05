@@ -17,7 +17,8 @@ module.exports = ({ config }) => {
           },
         },
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withStartupKeyGuard"
     ],
   };
 };

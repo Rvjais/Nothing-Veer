@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -15,11 +15,14 @@ import { Track } from "../types/music";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useThemeStore } from "../store/useThemeStore";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../services/haptics";
 import { NothingColors, NothingLayout } from "../constants/theme";
 import { NothingText } from "../components/common/NothingText";
 import { NothingSearchBar } from "../components/common/NothingSearchBar";
 import { GlyphIndicator } from "../components/common/GlyphIndicator";
+import { ScreenHeader } from "../components/common/ScreenHeader";
+import { PlaybackAccessError } from "../services/playbackAccess";
+import { useAuthStore } from "../store/useAuthStore";
 
 const TRENDING_KEYWORDS = [
   "Starboy",
@@ -51,6 +54,9 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
   const [activeCollection, setActiveCollection] = useState<{ title: string; type: string; id: string; artwork: string } | null>(null);
   const [collectionTracks, setCollectionTracks] = useState<Track[]>([]);
   const [loadingCollection, setLoadingCollection] = useState(false);
+  const searchRequest = useRef(0);
+  const collectionRequest = useRef(0);
+  useEffect(() => () => { searchRequest.current++; collectionRequest.current++; }, []);
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -85,35 +91,42 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     };
   }, [query, searched]);
 
-  const performSearch = async (searchTerm: string) => {
+  const performSearch = async (searchTerm: string, category = filterType) => {
     if (!searchTerm.trim()) return;
+    const request = ++searchRequest.current;
+    setFilterType(category);
     setQuery(searchTerm);
     setSuggestions([]);
     setSearched(true);
     setLoading(true);
 
     try {
-      const tracks = await YouTubeService.search(searchTerm, filterType);
-      setResults(tracks);
+      const tracks = await YouTubeService.search(searchTerm, category);
+      if (request === searchRequest.current) setResults(tracks);
     } catch (error) {
-      Alert.alert(
+      if (request === searchRequest.current) Alert.alert(
         "Search failed",
         error instanceof Error ? error.message : "Could not search Global Catalog."
       );
     } finally {
-      setLoading(false);
+      if (request === searchRequest.current) setLoading(false);
     }
   };
 
   const handleTrackPress = async (track: Track) => {
     if (track.contentType === "album" || track.contentType === "artist") {
+      const request = ++collectionRequest.current;
       setActiveCollection({ title: track.title, type: track.contentType, id: track.id, artwork: track.artwork });
+      setCollectionTracks([]);
       setLoadingCollection(true);
       try {
-        const tracks = await YouTubeService.search(track.title + " " + track.artist, "songs");
-        setCollectionTracks(tracks);
-      } catch (e) {}
-      setLoadingCollection(false);
+        const tracks = await YouTubeService.getCollectionTracks(track.id);
+        if (request === collectionRequest.current) setCollectionTracks(tracks);
+      } catch (error) {
+        if (request === collectionRequest.current) Alert.alert("Collection unavailable", error instanceof Error ? error.message : "Could not load this collection.");
+      } finally {
+        if (request === collectionRequest.current) setLoadingCollection(false);
+      }
       return;
     }
 
@@ -131,6 +144,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     try {
       await downloadTrack(track);
     } catch (error) {
+      if (error instanceof PlaybackAccessError) { useAuthStore.getState().requestSignIn(error.reason); return; }
       Alert.alert(
         "Download failed",
         error instanceof Error ? error.message : "Could not save this track."
@@ -222,7 +236,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => setActiveCollection(null)} style={styles.backBtn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => { collectionRequest.current++; setActiveCollection(null); }} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={isDark ? "#FFFFFF" : "#111111"} />
           </TouchableOpacity>
           <NothingText variant="dot" size={16} color="white" numberOfLines={1} style={{ flex: 1, color: isDark ? "#FFFFFF" : "#111111" }}>
@@ -238,16 +252,18 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
               <TouchableOpacity onPress={() => {
                 const lib = useLibraryStore.getState();
                 lib.createPlaylist(activeCollection.title).then(p => {
-                  collectionTracks.forEach(t => lib.addToPlaylist(p, t));
-                  Alert.alert("Saved", "Added to your Library Playlists.");
-                });
+                  return Promise.all(collectionTracks.map(t => lib.addToPlaylist(p, t)));
+                }).then(() => Alert.alert("Saved", "Added to your Library Playlists.")).catch(() => Alert.alert("Save failed", "Could not save this collection."));
               }} style={{ backgroundColor: colors.red, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
                 <NothingText size={10} color="white">SAVE</NothingText>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => {
                 const lib = useLibraryStore.getState();
-                collectionTracks.forEach(t => lib.downloadTrack(t));
-                Alert.alert("Downloading", "Album tracks are downloading.");
+                void Promise.allSettled(collectionTracks.map(t => lib.downloadTrack(t))).then((outcomes) => {
+                  if (outcomes.some(result => result.status === "rejected" && result.reason instanceof PlaybackAccessError)) return;
+                  const failed = outcomes.filter(result => result.status === "rejected").length;
+                  Alert.alert(failed ? "Downloads incomplete" : "Downloads complete", failed ? `${failed} tracks could not be downloaded. Try again.` : "Collection tracks are saved offline.");
+                });
               }} style={{ borderColor: colors.borderSubtle, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20 }}>
                 <NothingText size={10} color="dim">DOWNLOAD ALL</NothingText>
               </TouchableOpacity>
@@ -281,7 +297,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
                     <NothingText numberOfLines={1} size={12} color="grey" style={{ marginTop: 2, color: colors.grey }}>{item.artist}</NothingText>
                   </View>
                   {isCurrent && <View style={styles.glyphWrapper}><GlyphIndicator isPlaying={isPlaying} size={14} /></View>}
-                  <TouchableOpacity activeOpacity={0.7} onPress={() => downloadTrack(item)} style={styles.actionBtn} disabled={downloading || downloaded}>
+                  <TouchableOpacity activeOpacity={0.7} onPress={() => handleDownloadPress(item)} style={styles.actionBtn} disabled={downloading || downloaded}>
                     {downloading ? <ActivityIndicator size="small" color={colors.red} /> : <Ionicons name={downloaded ? "cloud-done" : "download-outline"} size={18} color={downloaded ? colors.red : colors.grey} />}
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -296,6 +312,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScreenHeader eyebrow="DISCOVER SOMETHING GOOD" title="Find your sound" subtitle="Songs, artists, and the next thing on repeat." />
       <View style={styles.header}>
         {onBack && (
           <TouchableOpacity
@@ -310,10 +327,15 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           <NothingSearchBar
             value={query}
             onChangeText={(text) => {
+              searchRequest.current++;
+              setLoading(false);
               setQuery(text);
               setSearched(false);
             }}
             onClear={() => {
+              searchRequest.current++;
+              setLoading(false);
+              setQuery("");
               setResults([]);
               setSearched(false);
             }}
@@ -380,14 +402,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
                 <TouchableOpacity
                   key={type}
                   onPress={() => {
-                    setFilterType(type as any);
-                    if (query.trim()) {
-                      setLoading(true);
-                      YouTubeService.search(query, type as any).then(res => {
-                        setResults(res);
-                        setLoading(false);
-                      });
-                    }
+                    void performSearch(query, type as "songs" | "albums" | "artists");
                   }}
                   style={{
                     paddingHorizontal: 16,

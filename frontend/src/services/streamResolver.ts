@@ -1,6 +1,8 @@
 import { NativeModules, Platform } from "react-native";
 import { AudioQuality } from "../types/music";
 import { useAuthStore } from "../store/useAuthStore";
+import { usePreferencesStore } from "../store/usePreferencesStore";
+import { PlaybackAccessError } from "./playbackAccess";
 
 export interface ResolvedStream {
   url: string;
@@ -10,7 +12,7 @@ export interface ResolvedStream {
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const RESOLVE_TIMEOUT_MS = 20_000;
+const RESOLVE_TIMEOUT_MS = 60_000;
 
 function getBackendBaseUrl(): string {
   const configuredUrl = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
@@ -69,7 +71,11 @@ export const StreamResolver = {
     videoId: string,
     quality: AudioQuality = "high"
   ): Promise<ResolvedStream | null> {
-    if (!videoId) return null; console.log("RESOLVING:", videoId);
+    if (!videoId) return null;
+    if (usePreferencesStore.getState().offlineMode) {
+      throw new Error("Offline mode is enabled. Play a downloaded song or disable offline mode in Settings.");
+    }
+    if (!useAuthStore.persist.hasHydrated()) await useAuthStore.persist.rehydrate();
 
     const baseUrl = getBackendBaseUrl();
     const params = new URLSearchParams({
@@ -96,6 +102,9 @@ export const StreamResolver = {
     }
 
     if (!response.ok) {
+      if ([401, 403, 429].includes(response.status)) {
+        throw new PlaybackAccessError(response.status === 429 ? "rate-limit" : "session");
+      }
       const message = await response.text().catch(() => "");
       throw new Error(message || "Audio backend returned HTTP " + response.status + ".");
     }
@@ -108,10 +117,13 @@ export const StreamResolver = {
   },
 
   async clearCache(): Promise<void> {
-    const response = await fetchWithTimeout(getBackendBaseUrl() + "/cache", {}, 5000);
+    const cookie = useAuthStore.getState().youtubeCookie;
+    const response = await fetchWithTimeout(getBackendBaseUrl() + "/cache", {
+      method: "DELETE",
+      headers: cookie ? { "x-youtube-cookie": cookie } : {},
+    }, 5000);
     if (!response.ok) {
       throw new Error("The audio backend could not clear its stream cache.");
     }
   },
 };
-

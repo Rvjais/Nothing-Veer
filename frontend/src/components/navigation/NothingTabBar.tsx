@@ -2,16 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   LayoutChangeEvent,
-  LayoutAnimation,
   PanResponder,
   StyleSheet,
   TouchableOpacity,
-  UIManager,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../../services/haptics";
 import { NothingLayout } from "../../constants/theme";
 import { NothingText } from "../common/NothingText";
 import { useThemeStore } from "../../store/useThemeStore";
@@ -37,17 +35,14 @@ const ACTIVE_FLEX = 1.85;
 const HORIZONTAL_PADDING = 6;
 const DRAG_THRESHOLD = 10;
 
-if (UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSelectTab }) => {
   const { colors, isDark } = useThemeStore();
-  const [tabs, setTabs] = useState(INITIAL_TABS);
+  const tabs = INITIAL_TABS;
   const [containerWidth, setContainerWidth] = useState(0);
-  const [, setDragRevision] = useState(0);
-  const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
+  const widthRef = useRef(containerWidth);
+  widthRef.current = containerWidth;
+  const onSelectTabRef = useRef(onSelectTab);
+  onSelectTabRef.current = onSelectTab;
   const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.name === currentTab));
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
@@ -63,7 +58,6 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
     downloads: { x: new Animated.Value(0), scale: new Animated.Value(1) },
     settings: { x: new Animated.Value(0), scale: new Animated.Value(1) },
   });
-  const startCenterRef = useRef(0);
   const draggedTabRef = useRef<TabName | null>(null);
   const dragDidMoveRef = useRef(false);
 
@@ -100,13 +94,6 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
     
-    // Using a minimal layout animation or removing it entirely to prevent screen-wide glitches
-    // and dev launcher crashes on fast switching.
-    LayoutAnimation.configureNext({
-      duration: 120,
-      update: { type: LayoutAnimation.Types.easeInEaseOut }
-    });
-    
     onSelectTab(tab);
   };
 
@@ -121,13 +108,13 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
         Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: false }).start();
       },
       onPanResponderMove: (_, gesture) => {
-        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        const nextUnitWidth = Math.max(1, widthRef.current - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
         let newX = activeIndexRef.current * nextUnitWidth + gesture.dx;
         newX = Math.max(0, Math.min(newX, (tabs.length - 1) * nextUnitWidth));
         slideAnim.setValue(newX);
       },
       onPanResponderRelease: (_, gesture) => {
-        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        const nextUnitWidth = Math.max(1, widthRef.current - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
         let newX = activeIndexRef.current * nextUnitWidth + gesture.dx;
         newX = Math.max(0, Math.min(newX, (tabs.length - 1) * nextUnitWidth));
         const nearestIndex = Math.round(newX / nextUnitWidth);
@@ -135,7 +122,7 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
         
         if (nextTab !== tabs[activeIndexRef.current].name) {
           try { Haptics.selectionAsync(); } catch {}
-          onSelectTab(nextTab);
+          onSelectTabRef.current(nextTab);
         } else {
           // Snap back
           Animated.spring(slideAnim, {
@@ -150,7 +137,7 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
         setTimeout(() => { dragDidMoveRef.current = false; }, 120);
       },
       onPanResponderTerminate: () => {
-        const nextUnitWidth = (containerWidth - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
+        const nextUnitWidth = Math.max(1, widthRef.current - HORIZONTAL_PADDING * 2) / (tabs.length + ACTIVE_FLEX - 1);
         Animated.spring(slideAnim, {
           toValue: activeIndexRef.current * nextUnitWidth,
           useNativeDriver: false,
@@ -240,7 +227,8 @@ export const NothingTabBar: React.FC<NothingTabBarProps> = ({ currentTab, onSele
                   onPress={() => handlePress(tab.name)}
                   style={styles.tabBtn}
                   accessibilityRole="button"
-                  accessibilityLabel={`${tab.label} tab${isActive ? ", selected" : ""}. Drag to reorder.`}
+                  accessibilityLabel={`${tab.label} tab${isActive ? ", selected" : ""}. Swipe to switch tabs.`}
+                  accessibilityState={{ selected: isActive }}
                 >
                   <View style={styles.iconLabelGroup}>
                     <Ionicons name={iconName} size={19} color={isActive ? colors.white : colors.grey} />

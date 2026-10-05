@@ -8,7 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../services/haptics";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useThemeStore, ThemeMode } from "../store/useThemeStore";
 import { NothingLayout } from "../constants/theme";
@@ -19,6 +19,10 @@ import { StreamResolver } from "../services/streamResolver";
 import { YouTubeAuthModal } from "../components/auth/YouTubeAuthModal";
 import { useAuthStore } from "../store/useAuthStore";
 import CookieManager from "@react-native-cookies/cookies";
+import { usePreferencesStore } from "../store/usePreferencesStore";
+import appConfig from "../../app.json";
+import { ScreenHeader } from "../components/common/ScreenHeader";
+import { useCacheStore } from "../store/useCacheStore";
 
 export interface SettingsScreenProps {
   onBack?: () => void;
@@ -32,8 +36,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
 
   const { mode: themeMode, setMode: setThemeMode, colors, isDark } = useThemeStore();
 
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(false);
+  const { hapticsEnabled, setHapticsEnabled, offlineMode, setOfflineMode } = usePreferencesStore();
   const [storageUsed, setStorageUsed] = useState(0);
   const [authModalVisible, setAuthModalVisible] = useState(false);
 
@@ -70,6 +73,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
           onPress: async () => {
             try {
               await DownloadManager.clearTemporaryFiles();
+              await useCacheStore.getState().clear();
               let backendCleared = false;
               try {
                 await StreamResolver.clearCache();
@@ -82,8 +86,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
               Alert.alert(
                 backendCleared ? "SUCCESS" : "LOCAL CACHE CLEARED",
                 backendCleared
-                  ? "Temporary download files and resolved stream URLs were cleared."
-                  : "Temporary download files were cleared. The audio backend could not be reached to clear its URL cache."
+                  ? "Unused cached songs and temporary files were cleared. The song in use was kept."
+                  : "Unused cached songs and temporary files were cleared. The streaming backend is currently unavailable."
               );
             } catch (error) {
               Alert.alert(
@@ -127,11 +131,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
             text: "SIGN OUT",
             style: "destructive",
             onPress: async () => {
-              clearYoutubeCookie();
               try {
-                await CookieManager.clearAll();
-              } catch {}
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                await CookieManager.clearAll(true);
+                clearYoutubeCookie();
+                await StreamResolver.clearCache().catch(() => {});
+              } catch {
+                Alert.alert("Sign out failed", "The saved browser session could not be cleared. Please try again.");
+                return;
+              }
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             },
           },
         ]
@@ -147,21 +155,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
       contentContainerStyle={styles.content}
     >
       {/* Top Header */}
-      <View style={styles.header}>
-        {onBack && (
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={isDark ? "#FFFFFF" : "#111111"} />
-          </TouchableOpacity>
-        )}
-        <View>
-          <NothingText variant="dot" size={26} color="white" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-            SETTINGS
-          </NothingText>
-          <NothingText variant="mono" color="dim" size={11} style={styles.headerSub}>
-            AUDIO, THEME & SYSTEM PREFERENCES
-          </NothingText>
-        </View>
-      </View>
+      <ScreenHeader eyebrow="MAKE IT YOURS" title="The way you listen" subtitle="A few small details. A more personal soundtrack." action={onBack && <TouchableOpacity onPress={onBack} style={{ padding: 10 }} accessibilityLabel="Back to Home"><Ionicons name="arrow-back" size={22} color={colors.white} /></TouchableOpacity>} />
 
       {/* APPEARANCE / THEME SECTION */}
       <View style={styles.section}>
@@ -181,7 +175,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
               <NothingText variant="mono" color="dim" size={11}>
                 {youtubeCookie
                   ? "COOKIES ARE SAVED. TAP TO SIGN OUT."
-                  : "BYPASS 429 RATE LIMITS & CAPTCHAS"}
+                  : "CONNECT YOUR YOUTUBE SESSION"}
               </NothingText>
             </View>
             <Ionicons
@@ -454,7 +448,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
                 HAPTIC ENGINE
               </NothingText>
               <NothingText variant="mono" color="dim" size={11}>
-                NOTHING OS TACTILE FEEDBACK
+                VEER OS TACTILE FEEDBACK
               </NothingText>
             </View>
             <Switch
@@ -470,10 +464,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
           <View style={styles.switchRow}>
             <View>
               <NothingText variant="bodyMedium" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-                DATA STREAMING ONLY
+                OFFLINE MODE
               </NothingText>
               <NothingText variant="mono" color="dim" size={11}>
-                STREAM OVER CELLULAR & WI-FI
+                PLAY DOWNLOADED SONGS ONLY
               </NothingText>
             </View>
             <Switch
@@ -542,28 +536,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
         <NothingCard style={styles.cardGroup} accent>
           <View style={styles.aboutRow}>
             <NothingText variant="mono" color="dim" size={12}>APPLICATION</NothingText>
-            <NothingText variant="dot" size={14} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>NOTHING (MUSIC)</NothingText>
+            <NothingText variant="dot" size={14} style={{ color: isDark ? "#FFFFFF" : "#111111" }}>VEER MUSIC</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
             <NothingText variant="mono" color="dim" size={12}>VERSION</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>2.0.0 (SDK 54)</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>{appConfig.expo.version} (SDK 54)</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
             <NothingText variant="mono" color="dim" size={12} style={{ flex: 1, paddingRight: 12 }}>UI ENGINE</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>NOTHING OS • LIQUID GLASS</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>VEER UI</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
 
           <View style={styles.aboutRow}>
             <NothingText variant="mono" color="dim" size={12} style={{ flex: 1, paddingRight: 12 }}>STREAM RESOLVER</NothingText>
-            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>INNERTUBE IOS (DIRECT)</NothingText>
+            <NothingText variant="mono" size={13} style={{ color: isDark ? "#FFFFFF" : "#111111", flexShrink: 1, textAlign: "right" }}>YOUTUBE AUDIO PROXY</NothingText>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
@@ -579,8 +573,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
         <NothingText variant="dot" color="red" size={12} style={styles.footerText}>
           MADE BY RANVEER ❤️ ♫
         </NothingText>
-        <NothingText variant="dot" color="dim" size={11} style={[styles.footerText, { marginTop: 4 }]}>
-          (1) DESIGNED IN THE STYLE OF NOTHING OS
+        <NothingText variant="dot" color="dim" size={11} style={[styles.footerText, { marginTop: 4, textAlign: 'center' }]}>
+          DESIGN AND THEME IS INSPIRED BY NOTHING AND IOS
         </NothingText>
       </View>
 
@@ -671,6 +665,3 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
 });
-
-
-

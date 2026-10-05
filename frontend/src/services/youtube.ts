@@ -17,6 +17,16 @@ const DEFAULT_HEADERS = {
   Referer: "https://music.youtube.com/",
 };
 
+async function catalogFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function formatArtwork(url: string | undefined): string {
   if (!url) {
     return "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80";
@@ -131,13 +141,34 @@ function parseTrackItem(item: any): Track | null {
 }
 
 export const YouTubeService = {
+  async getCollectionTracks(browseId: string): Promise<Track[]> {
+    const response = await catalogFetch(`${INNERTUBE_API}/browse`, {
+      method: "POST", headers: DEFAULT_HEADERS,
+      body: JSON.stringify({ context: { client: INNERTUBE_CLIENT }, browseId }),
+    });
+    if (!response.ok) throw new Error("Could not load this collection. Please try again.");
+    const data = await response.json();
+    const tracks = new Map<string, Track>();
+    const visit = (node: any): void => {
+      if (!node || typeof node !== "object") return;
+      if (node.musicResponsiveListItemRenderer || node.musicTwoRowItemRenderer) {
+        const track = parseTrackItem(node);
+        if (track && track.contentType === "song") tracks.set(track.id, track);
+        return;
+      }
+      Object.values(node).forEach(visit);
+    };
+    visit(data.contents);
+    if (!tracks.size) throw new Error("No playable tracks were returned for this collection.");
+    return [...tracks.values()];
+  },
   async search(query: string, filter?: "songs" | "albums" | "artists" | "playlists"): Promise<Track[]> {
     if (!query.trim()) return [];
 
     try {
       const params = filter === "songs" ? "Eg-KAQwIARAAGAAgACgAMABqChAEEAMQCRAFEAo%3D" : undefined;
 
-      const res = await fetch(`${INNERTUBE_API}/search`, {
+      const res = await catalogFetch(`${INNERTUBE_API}/search`, {
         method: "POST",
         headers: DEFAULT_HEADERS,
         body: JSON.stringify({
@@ -176,22 +207,23 @@ export const YouTubeService = {
 
       if (filter && filter !== "songs") {
         const filtered = tracks.filter(t => t.contentType === (filter === "albums" ? "album" : "artist"));
-        if (filtered.length > 0) return filtered;
+        return filtered;
       }
 
       if (tracks.length === 0) {
         return await this.searchFallback(query);
       }
 
-      return tracks;
+      return tracks.filter(track => !track.contentType || track.contentType === "song");
     } catch {
+      if (filter && filter !== "songs") throw new Error("Could not search this category. Please try again.");
       return await this.searchFallback(query);
     }
   },
 
   async searchFallback(query: string): Promise<Track[]> {
     try {
-      const ytRes = await fetch("https://www.youtube.com/youtubei/v1/search", {
+      const ytRes = await catalogFetch("https://www.youtube.com/youtubei/v1/search", {
         method: "POST",
         headers: DEFAULT_HEADERS,
         body: JSON.stringify({
@@ -207,6 +239,7 @@ export const YouTubeService = {
         }),
       });
 
+      if (!ytRes.ok) throw new Error("Search is temporarily unavailable.");
       const data = await ytRes.json();
       const tracks: Track[] = [];
 
@@ -234,14 +267,14 @@ export const YouTubeService = {
 
       return tracks;
     } catch {
-      return [];
+      throw new Error("Could not search YouTube. Check your connection and try again.");
     }
   },
 
   async getSearchSuggestions(query: string): Promise<string[]> {
     if (!query.trim()) return [];
     try {
-      const res = await fetch(
+      const res = await catalogFetch(
         `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`
       );
       if (!res.ok) return [];
@@ -254,7 +287,7 @@ export const YouTubeService = {
 
   async getHomeFeed(): Promise<HomeFeedSection[]> {
     try {
-      const res = await fetch(`${INNERTUBE_API}/browse`, {
+      const res = await catalogFetch(`${INNERTUBE_API}/browse`, {
         method: "POST",
         headers: DEFAULT_HEADERS,
         body: JSON.stringify({

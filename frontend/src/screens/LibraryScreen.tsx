@@ -11,7 +11,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../services/haptics";
 import { Track } from "../types/music";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { usePlayerStore } from "../store/usePlayerStore";
@@ -260,12 +260,13 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <NothingText variant="dot" size={26} color="white" style={{ color: isDark ? "#FFFFFF" : "#111111" }}>
-            LIBRARY
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <NothingText variant="mono" size={10} color="red" style={{ marginBottom: 8 }}>YOUR OWN LITTLE WORLD</NothingText>
+          <NothingText variant="headline" size={32} color="white" style={{ color: colors.white, letterSpacing: -0.8 }}>
+            Your library
           </NothingText>
-          <NothingText variant="mono" color="dim" size={11} style={styles.headerSub}>
-            OFFLINE SONGS & SAVED MIXES
+          <NothingText color="grey" size={12} style={styles.headerSub}>
+            Favorites, recent finds, and mixes that feel like you.
           </NothingText>
         </View>
 
@@ -423,7 +424,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               </NothingText>
               {Object.values(activeDownloads).slice(0, 1).map((d, i) => (
                 <NothingText key={i} size={10} color="red" style={{ marginTop: 2 }}>
-                  {Math.round(d.progress * 100)}% {d.totalBytes > 0 ? `� ${DownloadManager.formatBytes(d.totalBytes)}` : ""}
+                  {Math.round(d.progress * 100)}% {d.totalBytes > 0 ? `• ${DownloadManager.formatBytes(d.totalBytes)}` : ""}
                 </NothingText>
               ))}
             </View>
@@ -445,7 +446,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                     DEVICE STORAGE
                   </NothingText>
                   <NothingText variant="mono" size={12} color="white" style={{ color: isDark ? "#FFFFFF" : "#111111", marginTop: 2 }}>
-                    {DownloadManager.formatBytes(totalStorageUsed)} USED • {downloadedTracks.length} SONGS OFFLINE
+                    {DownloadManager.formatBytes(totalStorageUsed)} USED â€¢ {downloadedTracks.length} SONGS OFFLINE
                   </NothingText>
                 </View>
               </View>
@@ -546,7 +547,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                     <View style={styles.playlistRow}>
                       <View style={[styles.playlistIconBox, { backgroundColor: colors.surfaceMid }]}>
                         <NothingText variant="dot" color="red" size={18}>
-                          ♫
+                          â™«
                         </NothingText>
                       </View>
                       <View style={styles.playlistInfo}>
@@ -640,7 +641,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: NothingLayout.screenPadding,
+    paddingHorizontal: 20,
+    paddingTop: 18,
     marginBottom: 12,
   },
   headerSub: {

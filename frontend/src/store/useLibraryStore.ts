@@ -2,6 +2,8 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AudioQuality, Track } from "../types/music";
 import { DownloadManager } from "../services/downloadManager";
+import { PlaybackAccessError } from "../services/playbackAccess";
+import { useAuthStore } from "./useAuthStore";
 
 interface PlaylistData {
   id: string;
@@ -28,6 +30,7 @@ interface LibraryState {
   deletePlaylist: (playlistId: string) => Promise<void>;
   setAudioQuality: (quality: "high" | "medium" | "low") => Promise<void>;
   downloadTrack: (track: Track) => Promise<void>;
+  keepCachedTrack: (track: Track) => Promise<void>;
   removeDownload: (trackId: string) => Promise<void>;
   isDownloaded: (trackId: string) => boolean;
   getDownloadedTrack: (trackId: string) => Track | undefined;
@@ -150,12 +153,19 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
       await saveState({ ...get(), downloadedTracks: updatedDownloads });
     } catch (e) {
-      console.warn("Download error:", e);
+      if (e instanceof PlaybackAccessError) useAuthStore.getState().requestSignIn(e.reason);
+      else console.warn("Download error:", e);
       const nextActive = { ...get().activeDownloads };
       delete nextActive[track.id];
       set({ activeDownloads: nextActive });
       throw e;
     }
+  },
+
+  keepCachedTrack: async (track) => {
+    if (!track.localUri || get().isDownloaded(track.id)) return;
+    set({ downloadedTracks: [track, ...get().downloadedTracks] });
+    await saveState(get());
   },
 
   removeDownload: async (trackId: string) => {

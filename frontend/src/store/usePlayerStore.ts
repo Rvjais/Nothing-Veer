@@ -6,7 +6,10 @@ import TrackPlayer, {
   AppKilledPlaybackBehavior,
 } from "react-native-track-player";
 import { Track } from "../types/music";
-import { StreamResolver } from "../services/streamResolver";
+import { StreamResolver, ResolvedStream } from "../services/streamResolver";
+import { PlaybackAccessError } from "../services/playbackAccess";
+import { useAuthStore } from "./useAuthStore";
+import { useCacheStore } from "./useCacheStore";
 import { useLibraryStore } from "./useLibraryStore";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -42,7 +45,15 @@ interface PlayerState {
 }
 
 let playerSetupPromise: Promise<void> | null = null;
-let recoveringTrackId: string | null = null;
+let playRequest = 0;
+let resolvingRequest = 0;
+let nativeOperations: Promise<void> = Promise.resolve();
+
+function withNativePlayer(operation: () => Promise<void>): Promise<void> {
+  const result = nativeOperations.then(operation);
+  nativeOperations = result.catch(() => {});
+  return result;
+}
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   isReady: false,
@@ -95,13 +106,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
       TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
         set({
-          isPlaying: event.state === State.Playing,
+          isPlaying: resolvingRequest === 0 && event.state === State.Playing,
           isBuffering:
-            event.state === State.Buffering || event.state === State.Loading,
+            resolvingRequest !== 0 || event.state === State.Buffering || event.state === State.Loading,
         });
       });
 
       TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, (event) => {
+        if (resolvingRequest !== 0) return;
         set((state) => ({
           positionMillis: event.position * 1000,
           durationMillis:
@@ -110,7 +122,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
 
       TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, (event) => {
-        if (!event.track) return;
+        if (!event.track || event.track.id !== get().currentTrack?.id) return;
         const track = get().queue.find((item) => item.id === event.track?.id);
         if (track) {
           set({ currentTrack: track });
@@ -118,50 +130,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         }
       });
 
-      TrackPlayer.addEventListener(Event.PlaybackError, async (event) => {
-        const { currentTrack, positionMillis } = get();
+      TrackPlayer.addEventListener(Event.PlaybackError, (event) => {
+        if (resolvingRequest !== 0) return;
+        const { currentTrack } = get();
         const message = event.message || "Unknown playback error.";
         set({ isPlaying: false, isBuffering: false });
-
-        if (
-          currentTrack &&
-          message.includes("403") &&
-          recoveringTrackId !== currentTrack.id
-        ) {
-          recoveringTrackId = currentTrack.id;
-          try {
-            const resolved = await StreamResolver.getStreamUrl(
-              currentTrack.id,
-              useLibraryStore.getState().audioQuality
-            );
-            if (!resolved) throw new Error("Could not refresh the audio source.");
-
-            await TrackPlayer.reset();
-            await TrackPlayer.add({
-              id: currentTrack.id,
-              url: resolved.url,
-              title: currentTrack.title,
-              artist: currentTrack.artist,
-              artwork: currentTrack.artwork,
-              contentType: currentTrack.contentType,
-              headers: {
-                "User-Agent": resolved.userAgent,
-                ...(resolved.cookie ? { "x-youtube-cookie": resolved.cookie } : {})
-              },
-            });
-            if (positionMillis > 0) {
-              await TrackPlayer.seekTo(positionMillis / 1000);
-            }
-            await TrackPlayer.play();
-            set({ playbackError: null });
-            return;
-          } catch (recoveryError) {
-            console.warn("[Player] Stream recovery failed:", recoveryError);
-          } finally {
-            recoveringTrackId = null;
-          }
+        if (/\b(401|403|429)\b/.test(message)) {
+          useAuthStore.getState().requestSignIn(message.includes("429") ? "rate-limit" : "session");
+          return;
         }
 
+        // The proxy retries rejected upstream URLs once. Do not start a second
+        // client recovery loop that can race with a newer track selection.
         const label = currentTrack?.title
           ? currentTrack.title + " could not be played. "
           : "Playback failed. ";
@@ -189,10 +169,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   clearPlaybackError: () => set({ playbackError: null }),
 
   playTrack: async (track: Track, newQueue?: Track[]) => {
+    const request = ++playRequest;
     if (!get().isReady) {
       try {
         await get().initPlayer();
       } catch (error) {
+        if (request !== playRequest) return;
         set({
           isPlaying: false,
           isBuffering: false,
@@ -202,6 +184,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         return;
       }
     }
+    if (request !== playRequest) return;
     if (!get().isReady) {
       set({
         isPlaying: false,
@@ -218,20 +201,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       idx = activeQueue.length - 1;
     }
 
+    resolvingRequest = request;
     set({
       currentTrack: track,
       queue: activeQueue,
       queueIndex: idx,
       isBuffering: true,
+      isPlaying: false,
       positionMillis: 0,
       durationMillis: (track.duration || 180) * 1000,
       playbackError: null,
     });
 
     try {
-      await TrackPlayer.reset();
+      await withNativePlayer(async () => {
+        if (request === playRequest) await TrackPlayer.pause();
+      });
+      if (request !== playRequest) return;
 
       let audioUri: string | undefined = track.localUri;
+      let streamToCache: ResolvedStream | undefined;
+      const cache = useCacheStore.getState();
+      cache.protect(track.id);
+      const cached = await cache.find(track.id).catch(() => undefined);
+      if (cache.tracks.some(item => item.id === track.id) || audioUri?.includes("/nothing-audio/")) {
+        audioUri = cached?.localUri;
+        if (cached) track = cached;
+      }
       let userAgent: string | undefined = undefined;
       let cookieHeader: string | undefined = undefined;
       const library = useLibraryStore.getState();
@@ -244,12 +240,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         }
       }
 
+      if (!audioUri && cached) { audioUri = cached.localUri; track = cached; }
+
       if (!audioUri) {
         const resolved = await StreamResolver.getStreamUrl(
           track.id,
           library.audioQuality
         );
         if (resolved) {
+          streamToCache = resolved;
           audioUri = resolved.url;
           userAgent = resolved.userAgent;
           cookieHeader = resolved.cookie;
@@ -264,36 +263,56 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (userAgent) headers["User-Agent"] = userAgent;
       if (cookieHeader) headers["x-youtube-cookie"] = cookieHeader;
 
-      await TrackPlayer.add({
-        id: track.id,
-        url: audioUri,
-        title: track.title,
-        artist: track.artist,
-        artwork: track.artwork,
-        contentType: track.contentType,
-        headers: Object.keys(headers).length > 0 ? headers : undefined,
+      if (request !== playRequest) return;
+      await withNativePlayer(async () => {
+        if (request !== playRequest) return;
+        await TrackPlayer.reset();
+        if (request !== playRequest) return;
+        await TrackPlayer.add({
+          id: track.id,
+          url: audioUri,
+          title: track.title,
+          artist: track.artist,
+          artwork: track.artwork,
+          contentType: track.contentType,
+          headers: Object.keys(headers).length > 0 ? headers : undefined,
+        });
+        if (request !== playRequest) return;
+        resolvingRequest = 0;
+        await TrackPlayer.play();
+        if (request === playRequest) set({ currentTrack: track, isBuffering: false });
       });
-
-      await TrackPlayer.play();
+      if (request === playRequest && streamToCache && !library.isDownloaded(track.id)) {
+        void useCacheStore.getState().cache(track, streamToCache);
+      }
     } catch (error) {
-      console.error("[Player] playTrack error:", error);
+      if (request !== playRequest) return;
+      if (error instanceof PlaybackAccessError) {
+        set({ isBuffering: false, isPlaying: false, playbackError: null });
+        useAuthStore.getState().requestSignIn(error.reason);
+        return;
+      }
       set({
         isBuffering: false,
         isPlaying: false,
         playbackError:
           error instanceof Error ? error.message : "Unable to start playback.",
       });
+    } finally {
+      if (resolvingRequest === request) resolvingRequest = 0;
     }
   },
 
   togglePlayPause: async () => {
+    if (resolvingRequest !== 0) return;
     const { isPlaying, currentTrack, queue, playTrack } = get();
     try {
       if (isPlaying) {
         await TrackPlayer.pause();
       } else {
         const state = (await TrackPlayer.getPlaybackState()).state;
-        if (state === State.None || state === State.Stopped) {
+        const nativeTrack = await TrackPlayer.getActiveTrack();
+        if (get().playbackError || nativeTrack?.id !== currentTrack?.id || state === State.None || state === State.Stopped || state === State.Error || state === State.Ended) {
           if (currentTrack) await playTrack(currentTrack);
           else if (queue.length > 0) await playTrack(queue[0]);
         } else {
@@ -327,6 +346,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   handleQueueEnded: async () => {
+    if (resolvingRequest !== 0) return;
     const { queue, queueIndex, repeatMode, shuffle, currentTrack } = get();
     if (repeatMode === "one" && currentTrack) {
       await TrackPlayer.seekTo(0);
@@ -393,10 +413,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) => {
       const updated = state.queue.filter((_, i) => i !== index);
       let newIdx = state.queueIndex;
-      if (index < state.queueIndex) newIdx--;
-      else if (index === state.queueIndex && newIdx >= updated.length) {
-        newIdx = Math.max(0, updated.length - 1);
-      }
+      if (index <= state.queueIndex) newIdx--;
+      if (updated.length === 0) newIdx = -1;
       return { queue: updated, queueIndex: newIdx };
     });
   },

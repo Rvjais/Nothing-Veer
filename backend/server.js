@@ -2,13 +2,20 @@ const express = require("express");
 const cors = require("cors");
 const { execFile } = require("child_process");
 const https = require("https");
+const { createHash } = require("crypto");
+const { mkdtemp, writeFile, rm } = require("fs/promises");
+const { tmpdir } = require("os");
+const { join } = require("path");
+const { existsSync } = require("fs");
 
 const app = express();
 app.use(cors());
 
 const PORT = Number(process.env.PORT || 3000);
-const YT_DLP_BIN = process.env.YT_DLP_BIN || "yt-dlp";
-const RESOLVE_TIMEOUT_MS = 15_000;
+const LOCAL_YT_DLP = join(__dirname, ".venv", process.platform === "win32" ? "Scripts/yt-dlp.exe" : "bin/yt-dlp");
+const YT_DLP_BIN = process.env.YT_DLP_BIN || (existsSync(LOCAL_YT_DLP) ? LOCAL_YT_DLP : "yt-dlp");
+const YT_DLP_JS_RUNTIME = process.env.YT_DLP_JS_RUNTIME || "node:" + process.execPath;
+const RESOLVE_TIMEOUT_MS = 45_000;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 4;
 const streamCache = new Map();
@@ -16,8 +23,8 @@ const pendingResolutions = new Map();
 
 const FORMAT_BY_QUALITY = {
   high: "bestaudio/best",
-  medium: "bestaudio[abr<=128]/bestaudio",
-  low: "bestaudio[abr<=64]/bestaudio",
+  medium: "bestaudio[abr<=128]/bestaudio/best",
+  low: "bestaudio[abr<=64]/bestaudio/best",
 };
 
 function normalizeQuality(value) {
@@ -30,8 +37,35 @@ function isValidVideoId(value) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
-function cacheKey(videoId, quality) {
-  return videoId + ":" + quality;
+function sessionKey(cookieString = "") {
+  return createHash("sha256").update(cookieString).digest("hex");
+}
+
+function cacheKey(videoId, quality, cookieString = "") {
+  return sessionKey(cookieString) + ":" + videoId + ":" + quality;
+}
+
+function readCookieHeader(request) {
+  const value = request.headers["x-youtube-cookie"] || "";
+  if (typeof value !== "string" || value.length > 16_000 || /[^\x20-\x7e]/.test(value)) {
+    throw Object.assign(new Error("Invalid YouTube session header."), { status: 400 });
+  }
+  return value.split(";").map((part) => part.trim()).filter(Boolean).sort().join("; ");
+}
+
+function resolutionError(error, stderr = "") {
+  if (error.code === "ENOENT") return Object.assign(new Error("yt-dlp is not installed or not in PATH. Install it or set YT_DLP_BIN."), { status: 503 });
+  if (error.killed) return Object.assign(new Error("YouTube took too long to resolve this track. Try again."), { status: 504 });
+  if (/sign in|not a bot|cookies.*no longer valid/i.test(stderr)) {
+    return Object.assign(new Error("YouTube rejected this session. Reconnect YouTube in Settings and try again."), { status: 401 });
+  }
+  if (/429|too many requests/i.test(stderr)) return Object.assign(new Error("YouTube is rate limiting playback. Please try again later."), { status: 429 });
+  if (/page needs to be reloaded/i.test(stderr)) return Object.assign(new Error("YouTube rejected the backend player client. Update yt-dlp or configure a supported player client."), { status: 502 });
+  if (/requested format.*not available|no video formats|only images are available/i.test(stderr)) return Object.assign(new Error("YouTube did not provide an audio format. Update yt-dlp and its JavaScript runtime, then retry."), { status: 502 });
+  if (/javascript runtime|challenge solving|signature extraction|n challenge/i.test(stderr)) return Object.assign(new Error("The audio backend needs an updated yt-dlp JavaScript runtime to play this track."), { status: 503 });
+  if (/HTTP Error 403|Forbidden/i.test(stderr)) return Object.assign(new Error("YouTube denied the audio request. Refresh your session and update yt-dlp before retrying."), { status: 403 });
+  if (/cookie|netscape/i.test(stderr)) return Object.assign(new Error("The audio backend could not use the saved YouTube session. Reconnect YouTube and try again."), { status: 401 });
+  return Object.assign(new Error("Could not resolve this track from YouTube."), { status: 502 });
 }
 
 function getExpiry(url) {
@@ -47,7 +81,7 @@ function getExpiry(url) {
 }
 
 async function getStreamUrl(videoId, quality, forceRefresh = false, cookieString = "") {
-  const key = cacheKey(videoId, quality);
+  const key = cacheKey(videoId, quality, cookieString);
   const cached = streamCache.get(key);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
     return cached.url;
@@ -61,6 +95,10 @@ async function getStreamUrl(videoId, quality, forceRefresh = false, cookieString
   const commandArgs = [
     "--no-warnings",
     "--no-playlist",
+    "--js-runtimes",
+    YT_DLP_JS_RUNTIME,
+    "--extractor-args",
+    process.env.YT_DLP_YOUTUBE_ARGS || (cookieString ? "youtube:player_client=web_embedded" : "youtube:player_client=default"),
     "--socket-timeout",
     "8",
     "-f",
@@ -69,39 +107,58 @@ async function getStreamUrl(videoId, quality, forceRefresh = false, cookieString
     "https://www.youtube.com/watch?v=" + videoId,
   ];
 
-  if (cookieString) {
-    commandArgs.push("--add-header", "Cookie: " + cookieString);
-  }
-
-  const resolution = new Promise((resolve, reject) => {
-    execFile(
-      YT_DLP_BIN,
-      commandArgs,
-      {
-        timeout: RESOLVE_TIMEOUT_MS,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout) => {
-        if (error) return reject(error);
-
-        const url = stdout
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .find((line) => line.startsWith("https://"));
-
-        if (!url) return reject(new Error("yt-dlp returned no audio URL."));
-        streamCache.set(key, { url, expiresAt: getExpiry(url) });
-        resolve(url);
+  // Use yt-dlp's cookie jar support. Cookies never appear in process arguments
+  // or failure messages; the private temporary jar is removed on every exit.
+  const generation = cacheGeneration;
+  const resolution = (async () => {
+    let directory;
+    try {
+      if (cookieString) {
+        directory = await mkdtemp(join(tmpdir(), "nothing-youtube-"));
+        const file = join(directory, "cookies.txt");
+        const rows = cookieString.split("; ").map((part) => {
+          const separator = part.indexOf("=");
+          const name = part.slice(0, separator);
+          const value = part.slice(separator + 1);
+          if (separator < 1 || !/^[A-Za-z0-9_-]+$/.test(name)) {
+            throw Object.assign(new Error("Invalid YouTube session cookie."), { status: 400 });
+          }
+          return [".youtube.com", "TRUE", "/", "TRUE", "0", name, value].join("\t");
+        });
+        await writeFile(file, "# Netscape HTTP Cookie File\n" + rows.join("\n") + "\n", { mode: 0o600 });
+        commandArgs.push("--cookies", file);
       }
-    );
-  });
+      return await new Promise((resolve, reject) => {
+        execFile(
+          YT_DLP_BIN,
+          commandArgs,
+          {
+            timeout: RESOLVE_TIMEOUT_MS,
+            maxBuffer: 1024 * 1024,
+            windowsHide: true,
+          },
+          (error, stdout, stderr) => {
+            if (error) return reject(resolutionError(error, stderr));
+            const url = stdout
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .find((line) => line.startsWith("https://"));
+            if (!url) return reject(new Error("yt-dlp returned no audio URL."));
+            if (generation === cacheGeneration) streamCache.set(key, { url, expiresAt: getExpiry(url) });
+            resolve(url);
+          }
+        );
+      });
+    } finally {
+      if (directory) await rm(directory, { recursive: true, force: true });
+    }
+  })();
 
   pendingResolutions.set(key, resolution);
   try {
     return await resolution;
   } finally {
-    pendingResolutions.delete(key);
+    if (pendingResolutions.get(key) === resolution) pendingResolutions.delete(key);
   }
 }
 
@@ -195,22 +252,14 @@ app.get("/resolve", async (request, response) => {
   }
 
   const quality = normalizeQuality(request.query.quality);
-  const cookieString = request.headers["x-youtube-cookie"];
-
   try {
+    const cookieString = readCookieHeader(request);
     await getStreamUrl(videoId, quality, false, cookieString);
     response.json({ ready: true });
   } catch (error) {
-    if (error && error.code === "ENOENT") {
-      return response
-        .status(503)
-        .send("yt-dlp is not installed or not in PATH. Install it or set YT_DLP_BIN.");
-    }
-    if (error && error.killed) {
-      return response.status(504).send("yt-dlp timed out while resolving this track.");
-    }
-    console.error("[Proxy] Resolution failed for " + videoId + ": " + error.message);
-    response.status(502).send("Could not resolve this track from YouTube.");
+    const status = error.status || 502;
+    console.warn("[Proxy] Resolution failed for " + videoId + " (HTTP " + status + "): " + (error.status ? error.message : "Extractor failure."));
+    response.status(status).send(error.status ? error.message : "Could not resolve this track from YouTube.");
   }
 });
 
@@ -221,11 +270,11 @@ app.get("/stream", async (request, response) => {
   }
 
   const quality = normalizeQuality(request.query.quality);
-  const cookieString = request.headers["x-youtube-cookie"];
-  const key = cacheKey(videoId, quality);
   const range = request.headers.range;
 
   try {
+    const cookieString = readCookieHeader(request);
+    const key = cacheKey(videoId, quality, cookieString);
     let upstreamUrl = await getStreamUrl(videoId, quality, false, cookieString);
     let upstream = await openUpstream(upstreamUrl, range);
 
@@ -246,7 +295,7 @@ app.get("/stream", async (request, response) => {
     response.status(status);
 
     upstream.once("error", (error) => {
-      console.error("[Proxy] Upstream stream failed for " + videoId + ": " + error.message);
+      console.warn("[Proxy] Upstream stream failed for " + videoId + ".");
       if (!response.headersSent) response.status(502).send("Audio source failed.");
       else response.destroy(error);
     });
@@ -255,22 +304,24 @@ app.get("/stream", async (request, response) => {
     });
     upstream.pipe(response);
   } catch (error) {
-    console.error("[Proxy] Stream failed for " + videoId + ": " + error.message);
+    console.warn("[Proxy] Stream failed for " + videoId + ".");
     if (!response.headersSent) {
-      const status = error && error.killed ? 504 : 502;
-      response.status(status).send(error.message || "Could not open the audio stream.");
+      response.status(error.status || 502).send(error.status ? error.message : "Could not open the audio stream.");
     } else {
       response.destroy(error);
     }
   }
 });
 
+let cacheGeneration = 0;
 app.delete("/cache", (_request, response) => {
+  cacheGeneration++;
   streamCache.clear();
+  pendingResolutions.clear();
   response.status(204).end();
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+if (require.main === module) app.listen(PORT, "0.0.0.0", () => {
   console.log("Audio Streaming Proxy running on port " + PORT);
   console.log("yt-dlp executable: " + YT_DLP_BIN);
 });

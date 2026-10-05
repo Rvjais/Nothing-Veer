@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Modal, View, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
-import { WebView, WebViewNavigation } from "react-native-webview";
-import CookieManager from "@react-native-cookies/cookies";
+import { WebView } from "react-native-webview";
+import { readYouTubeSession } from "../../services/youtubeSession";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../../services/haptics";
 import { useThemeStore } from "../../store/useThemeStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { NothingText } from "../common/NothingText";
@@ -18,27 +18,45 @@ export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onC
   const { colors, isDark } = useThemeStore();
   const setYoutubeCookie = useAuthStore((s) => s.setYoutubeCookie);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const checking = useRef(false);
+  const active = useRef(visible);
+  active.current = visible;
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   // Memoize the source object so that re-renders (like when the keyboard opens)
   // do not cause the WebView to reload the page!
   const webViewSource = React.useMemo(() => ({ uri: "https://m.youtube.com" }), []);
 
-  const handleNavigationStateChange = async (navState: WebViewNavigation) => {
-    // Whenever the URL changes, aggressively check if we have received the SID and HSID cookies.
+  const checkSession = useCallback(async (): Promise<void> => {
+    if (!active.current || checking.current) return;
+    checking.current = true;
     try {
-      const cookies = await CookieManager.get("https://youtube.com");
-      if (cookies && cookies.SID && cookies.HSID) {
-        const cookieParts = Object.keys(cookies).map((key) => `${key}=${cookies[key].value}`);
-        const cookieString = cookieParts.join("; ");
-
+      const cookieString = await readYouTubeSession();
+      if (cookieString && active.current) {
+        active.current = false;
         setYoutubeCookie(cookieString);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onClose();
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        closeRef.current();
       }
-    } catch (error) {
-      console.error("Failed to read YouTube cookies:", error);
+    } catch {
+      if (active.current) setSessionError("Unable to read the YouTube session. Close and try again.");
+    } finally {
+      checking.current = false;
     }
-  };
+  }, [setYoutubeCookie]);
+
+  useEffect(() => {
+    if (!visible) return;
+    active.current = true;
+    setLoading(true);
+    setSessionError(null);
+    void checkSession();
+    // YouTube uses client-side navigation; not every login updates the URL.
+    const timer = setInterval(() => void checkSession(), 1500);
+    return () => { active.current = false; clearInterval(timer); };
+  }, [visible, checkSession]);
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -52,12 +70,13 @@ export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onC
               YOUTUBE AUTH
             </NothingText>
             <NothingText variant="mono" color="dim" size={10} style={{ letterSpacing: 1.2 }}>
-              TAP THE PROFILE ICON TO SIGN IN
+              SIGN IN OR CREATE AN ACCOUNT ON YOUTUBE
             </NothingText>
           </View>
         </View>
 
         <View style={styles.webviewContainer}>
+          {sessionError && <NothingText color="red" size={12} style={{ padding: 12 }}>{sessionError}</NothingText>}
           {loading && (
             <View style={[styles.loadingOverlay, { backgroundColor: colors.background }]}>
               <ActivityIndicator size="large" color={NothingColors.red} />
@@ -66,11 +85,11 @@ export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onC
               </NothingText>
             </View>
           )}
-          {/* We point to m.youtube.com instead of accounts.google.com to bypass Google's WebView blocking */}
-          <WebView
+          {visible && <WebView
             source={webViewSource}
-            onNavigationStateChange={handleNavigationStateChange}
-            onLoadEnd={() => setLoading(false)}
+            onNavigationStateChange={(): void => { void checkSession(); }}
+            onLoadEnd={() => { setLoading(false); void checkSession(); }}
+            onError={() => { setLoading(false); setSessionError("YouTube could not load. Check your connection and try again."); }}
             userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
             incognito={false}
             sharedCookiesEnabled={true}
@@ -82,7 +101,7 @@ export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onC
             automaticallyAdjustContentInsets={false}
             scalesPageToFit={false}
             bounces={false}
-          />
+          />}
         </View>
       </View>
     </Modal>

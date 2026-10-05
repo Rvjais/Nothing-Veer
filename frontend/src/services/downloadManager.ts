@@ -1,8 +1,11 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { AudioQuality, Track } from "../types/music";
 import { StreamResolver } from "./streamResolver";
+import { usePreferencesStore } from "../store/usePreferencesStore";
+import { PlaybackAccessError } from "./playbackAccess";
 
 const DOWNLOADS_DIR = (FileSystem.documentDirectory || "") + "downloads/";
+const activeTemporaryFiles = new Set<string>();
 
 function extensionForMimeType(mimeType: string | null | undefined): string {
   const mime = mimeType?.split(";")[0].trim().toLowerCase();
@@ -31,7 +34,7 @@ function extensionForMimeType(mimeType: string | null | undefined): string {
 
 export class DownloadManager {
   private static async ensureDirExists(): Promise<void> {
-    if (!DOWNLOADS_DIR) throw new Error("App storage is unavailable.");
+    if (!FileSystem.documentDirectory) throw new Error("App storage is unavailable.");
     const dirInfo = await FileSystem.getInfoAsync(DOWNLOADS_DIR);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(DOWNLOADS_DIR, { intermediates: true });
@@ -43,6 +46,7 @@ export class DownloadManager {
     onProgress?: (progress: number, totalBytes: number) => void,
     quality: AudioQuality = "high"
   ): Promise<Track> {
+    if (usePreferencesStore.getState().offlineMode) throw new Error("Disable offline mode before downloading new songs.");
     await this.ensureDirExists();
 
     const tempUri = DOWNLOADS_DIR + track.id + ".download";
@@ -53,17 +57,22 @@ export class DownloadManager {
 
     let sourceUrl = track.streamUrl;
     let userAgent: string | undefined;
+    let cookie: string | undefined;
     if (!sourceUrl) {
       const resolved = await StreamResolver.getStreamUrl(track.id, quality);
       if (!resolved) throw new Error("Could not resolve an audio stream for this track.");
       sourceUrl = resolved.url;
       userAgent = resolved.userAgent;
+      cookie = resolved.cookie;
     }
 
     const download = FileSystem.createDownloadResumable(
       sourceUrl,
       tempUri,
-      userAgent ? { headers: { "User-Agent": userAgent } } : undefined,
+      { headers: {
+        ...(userAgent ? { "User-Agent": userAgent } : {}),
+        ...(cookie ? { "x-youtube-cookie": cookie } : {}),
+      } },
       (progress) => {
         const total = progress.totalBytesExpectedToWrite;
         if (total > 0 && onProgress) {
@@ -76,10 +85,12 @@ export class DownloadManager {
     );
 
     let finalUri: string | undefined;
+    activeTemporaryFiles.add(tempUri);
     try {
       const result = await download.downloadAsync();
       if (!result || !result.uri) throw new Error("Download was cancelled.");
       if (result.status < 200 || result.status >= 300) {
+        if ([401, 403, 429].includes(result.status)) throw new PlaybackAccessError(result.status === 429 ? "rate-limit" : "session");
         throw new Error("Audio server returned HTTP " + result.status + ".");
       }
 
@@ -111,6 +122,8 @@ export class DownloadManager {
         await FileSystem.deleteAsync(finalUri, { idempotent: true }).catch(() => {});
       }
       throw error;
+    } finally {
+      activeTemporaryFiles.delete(tempUri);
     }
   }
 
@@ -146,7 +159,7 @@ export class DownloadManager {
     await this.ensureDirExists();
     const files = await FileSystem.readDirectoryAsync(DOWNLOADS_DIR);
     for (const fileName of files) {
-      if (fileName.endsWith(".download")) {
+      if (fileName.endsWith(".download") && !activeTemporaryFiles.has(DOWNLOADS_DIR + fileName)) {
         await FileSystem.deleteAsync(DOWNLOADS_DIR + fileName, { idempotent: true });
       }
     }

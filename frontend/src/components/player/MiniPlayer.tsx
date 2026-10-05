@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -21,6 +22,7 @@ export interface MiniPlayerProps {
 export const MiniPlayer: React.FC<MiniPlayerProps> = ({ onPress }) => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const isBuffering = usePlayerStore(state => state.isBuffering);
   const positionMillis = usePlayerStore((s) => s.positionMillis);
   const durationMillis = usePlayerStore((s) => s.durationMillis);
   const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
@@ -75,6 +77,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ onPress }) => {
         ]}
       >
         <BlurView
+          pointerEvents="none"
           intensity={65}
           tint={isDark ? "dark" : "light"}
           style={StyleSheet.absoluteFill}
@@ -119,6 +122,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ onPress }) => {
 
         <View style={styles.controlsWrapper}>
           <TouchableOpacity
+            accessibilityLabel={isBuffering ? "Loading song" : isPlaying ? "Pause" : "Play"}
+            disabled={isBuffering}
             activeOpacity={0.7}
             onPress={(e) => {
               e.stopPropagation();
@@ -126,12 +131,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ onPress }) => {
             }}
             style={styles.playBtn}
           >
-            <Ionicons
+            {isBuffering ? <ActivityIndicator size="small" color={colors.red} /> : <Ionicons
               name={isPlaying ? "pause" : "play"}
               size={22}
               color={isDark ? "#FFFFFF" : "#111111"}
               style={!isPlaying ? { marginLeft: 2 } : null}
-            />
+            />}
           </TouchableOpacity>
 
           <TouchableOpacity

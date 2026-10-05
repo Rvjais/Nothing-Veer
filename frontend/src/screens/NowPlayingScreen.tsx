@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../services/haptics";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { NothingText } from "../components/common/NothingText";
@@ -24,6 +24,8 @@ import { LyricsOverlay } from "../components/player/LyricsOverlay";
 import { QueueModal } from "../components/player/QueueModal";
 import { PlaylistPickerModal } from "../components/player/PlaylistPickerModal";
 import { SongInfoModal } from "../components/player/SongInfoModal";
+import { PlaybackAccessError } from "../services/playbackAccess";
+import { useAuthStore } from "../store/useAuthStore";
 import { useThemeStore } from "../store/useThemeStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -168,6 +170,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
     try {
       await downloadTrack(currentTrack);
     } catch (error) {
+      if (error instanceof PlaybackAccessError) { useAuthStore.getState().requestSignIn(error.reason); return; }
       Alert.alert(
         "Download failed",
         error instanceof Error ? error.message : "Could not save this track."
@@ -223,7 +226,7 @@ export const NowPlayingScreen: React.FC<NowPlayingScreenProps> = ({
                 Playing from
               </NothingText>
               <NothingText variant="dot" size={11} color="white">
-                Global Catalog
+                {currentTrack?.localUri?.includes("/nothing-audio/") ? "Cached · Offline ready" : currentTrack?.localUri ? "Downloads · Offline ready" : "YouTube Music"}
               </NothingText>
             </View>
 
