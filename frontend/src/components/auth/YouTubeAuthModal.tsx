@@ -1,13 +1,12 @@
-import React from "react";
-import { Alert, Modal, View, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
-import * as WebBrowser from "expo-web-browser";
+import React, { useState } from "react";
+import { Modal, View, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { WebView, WebViewNavigation } from "react-native-webview";
 import CookieManager from "@react-native-cookies/cookies";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useThemeStore } from "../../store/useThemeStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { NothingText } from "../common/NothingText";
-import { NothingCard } from "../common/NothingCard";
 import { NothingColors, NothingLayout } from "../../constants/theme";
 
 interface YouTubeAuthModalProps {
@@ -18,42 +17,26 @@ interface YouTubeAuthModalProps {
 export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onClose }) => {
   const { colors, isDark } = useThemeStore();
   const setYoutubeCookie = useAuthStore((s) => s.setYoutubeCookie);
+  const [loading, setLoading] = useState(true);
 
-  const handleBrowserLogin = async () => {
+  // Memoize the source object so that re-renders (like when the keyboard opens)
+  // do not cause the WebView to reload the page!
+  const webViewSource = React.useMemo(() => ({ uri: "https://m.youtube.com" }), []);
+
+  const handleNavigationStateChange = async (navState: WebViewNavigation) => {
+    // Whenever the URL changes, aggressively check if we have received the SID and HSID cookies.
     try {
-      Haptics.selectionAsync();
-
-      // Open the trusted system browser for Google Auth
-      await WebBrowser.openBrowserAsync("https://accounts.google.com/ServiceLogin?service=youtube", {
-        toolbarColor: colors.background,
-        enableDefaultShareMenuItem: false,
-        showInRecents: true,
-      });
-
-      // The user manually closes the browser when done.
-      // After it closes, we extract the cookies that Chrome/Safari just saved for youtube.com
-      const cookies = await CookieManager.get("https://youtube.com", true); // true = use WebKit/Chrome shared cookies if possible
-
-      if (cookies) {
+      const cookies = await CookieManager.get("https://youtube.com");
+      if (cookies && cookies.SID && cookies.HSID) {
         const cookieParts = Object.keys(cookies).map((key) => `${key}=${cookies[key].value}`);
         const cookieString = cookieParts.join("; ");
 
-        if (cookieString.includes("SID=") && cookieString.includes("HSID=")) {
-          setYoutubeCookie(cookieString);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          onClose();
-          return;
-        }
+        setYoutubeCookie(cookieString);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onClose();
       }
-
-      // If we reach here, we didn't find the necessary cookies.
-      Alert.alert(
-        "LOGIN INCOMPLETE",
-        "Could not detect a successful YouTube login. Please try again and make sure you sign in completely before closing the browser."
-      );
-
     } catch (error) {
-      console.error("Failed to launch auth browser:", error);
+      console.error("Failed to read YouTube cookies:", error);
     }
   };
 
@@ -69,35 +52,37 @@ export const YouTubeAuthModal: React.FC<YouTubeAuthModalProps> = ({ visible, onC
               YOUTUBE AUTH
             </NothingText>
             <NothingText variant="mono" color="dim" size={10} style={{ letterSpacing: 1.2 }}>
-              LOGIN TO BYPASS RATE LIMITS
+              TAP THE PROFILE ICON TO SIGN IN
             </NothingText>
           </View>
         </View>
 
-        <View style={styles.content}>
-          <NothingCard style={styles.card} accent>
-            <View style={styles.iconContainer}>
-              <Ionicons name="shield-checkmark-outline" size={48} color={NothingColors.red} />
-            </View>
-
-            <NothingText variant="dot" size={16} color="white" style={[styles.title, { color: isDark ? "#FFFFFF" : "#111111" }]}>
-              SECURE BROWSER LOGIN
-            </NothingText>
-
-            <NothingText variant="mono" color="dim" size={12} style={styles.description}>
-              TO PROTECT YOUR ACCOUNT, GOOGLE REQUIRES YOU TO LOG IN USING YOUR DEVICE'S SECURE SYSTEM BROWSER.
-            </NothingText>
-
-            <NothingText variant="mono" color="dim" size={12} style={styles.description}>
-              TAP THE BUTTON BELOW. ONCE YOU ARE FULLY SIGNED INTO YOUTUBE, CLOSE THE BROWSER MANUALLY BY TAPPING THE 'X' AT THE TOP.
-            </NothingText>
-
-            <TouchableOpacity style={styles.button} onPress={handleBrowserLogin}>
-              <NothingText variant="dot" size={14} color="white" style={styles.buttonText}>
-                OPEN SECURE BROWSER
+        <View style={styles.webviewContainer}>
+          {loading && (
+            <View style={[styles.loadingOverlay, { backgroundColor: colors.background }]}>
+              <ActivityIndicator size="large" color={NothingColors.red} />
+              <NothingText variant="mono" color="dim" size={12} style={{ marginTop: 16 }}>
+                LOADING YOUTUBE...
               </NothingText>
-            </TouchableOpacity>
-          </NothingCard>
+            </View>
+          )}
+          {/* We point to m.youtube.com instead of accounts.google.com to bypass Google's WebView blocking */}
+          <WebView
+            source={webViewSource}
+            onNavigationStateChange={handleNavigationStateChange}
+            onLoadEnd={() => setLoading(false)}
+            userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+            incognito={false}
+            sharedCookiesEnabled={true}
+            thirdPartyCookiesEnabled={true}
+            domStorageEnabled={true}
+            javaScriptEnabled={true}
+            cacheEnabled={true}
+            // Add these to prevent layout-triggered reloads
+            automaticallyAdjustContentInsets={false}
+            scalesPageToFit={false}
+            bounces={false}
+          />
         </View>
       </View>
     </Modal>
@@ -119,37 +104,13 @@ const styles = StyleSheet.create({
   closeButton: {
     marginRight: 16,
   },
-  content: {
+  webviewContainer: {
     flex: 1,
-    padding: NothingLayout.screenPadding,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
-  },
-  card: {
     alignItems: "center",
-    padding: 32,
-  },
-  iconContainer: {
-    marginBottom: 24,
-  },
-  title: {
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  description: {
-    textAlign: "center",
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  button: {
-    backgroundColor: NothingColors.red,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 30,
-    marginTop: 16,
-    width: "100%",
-    alignItems: "center",
-  },
-  buttonText: {
-    letterSpacing: 1.5,
-  },
+    zIndex: 10,
+  }
 });
